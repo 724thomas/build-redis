@@ -17,9 +17,12 @@ public class Main {
             System.out.println("Redis server started. Waiting for connections...");
             
             while (true) {
-                try (Socket clientSocket = serverSocket.accept()) {
+                try {
+                    Socket clientSocket = serverSocket.accept();
                     System.out.println("Client connected: " + clientSocket.getRemoteSocketAddress());
-                    handleClient(clientSocket);
+                    
+                    // 클라이언트 연결을 별도의 스레드로 처리
+                    new Thread(() -> handleClient(clientSocket)).start();
                 } catch (IOException e) {
                     System.err.println("Error handling client connection: " + e.getMessage());
                 }
@@ -70,6 +73,12 @@ public class Main {
             System.out.println("Client disconnected: " + clientSocket.getRemoteSocketAddress());
         } catch (IOException e) {
             System.err.println("Error handling client: " + e.getMessage());
+        } finally {
+            try {
+                clientSocket.close();
+            } catch (IOException e) {
+                System.err.println("Error closing client socket: " + e.getMessage());
+            }
         }
         
         System.out.println("Client connection closed: " + clientSocket.getRemoteSocketAddress());
