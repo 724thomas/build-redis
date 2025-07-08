@@ -264,27 +264,3 @@ redis-cli -p 6380 GET replicated_key  # "master_value"
 5. **분산 시스템**: 복제, 일관성, 동기화
 6. **트랜잭션**: ACID 속성, 롤백 처리
 7. **영속성**: 파일 I/O, 데이터 복구
-
-## 📚 참고 자료
-
-- [Redis Protocol Specification](https://redis.io/docs/reference/protocol-spec/)
-- [Redis RDB File Format](https://github.com/sripathikrishnan/redis-rdb-tools/wiki/Redis-RDB-Dump-File-Format)
-- [Redis Replication](https://redis.io/docs/management/replication/)
-- [Redis Streams](https://redis.io/docs/data-types/streams/)
-- [Redis Transactions](https://redis.io/docs/manual/transactions/)
-
-## ⚠️ 주의사항
-
-**이 프로젝트는 교육 목적으로 제작되었습니다.**
-
-- 프로덕션 환경에서의 사용은 권장하지 않습니다
-- 성능 최적화보다는 이해하기 쉬운 구현에 중점을 두었습니다
-- 보안 기능은 포함되지 않았습니다
-
-## 🤝 기여
-
-버그 리포트나 개선 제안은 언제나 환영합니다. 교육적 가치를 높이는 방향의 기여를 특히 환영합니다.
-
----
-
-**Happy Coding! 🚀**
