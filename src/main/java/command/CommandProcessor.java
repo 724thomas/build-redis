@@ -41,6 +41,8 @@ public class CommandProcessor {
                 return handleConfigCommand(args);
             case "KEYS":
                 return handleKeysCommand(args);
+            case "INFO":
+                return handleInfoCommand(args);
             case "XADD":
                 return handleXAddCommand(args);
             case "XRANGE":
@@ -156,6 +158,35 @@ public class CommandProcessor {
         List<String> keyList = new ArrayList<>(keys);
         
         return RespProtocol.createRespArray(keyList.toArray(new String[0]));
+    }
+    
+    /**
+     * INFO 명령어를 처리합니다.
+     */
+    private String handleInfoCommand(List<String> args) {
+        if (args.size() < 2) {
+            return RespProtocol.createErrorResponse("wrong number of arguments for 'INFO' command");
+        }
+        
+        String section = args.get(1).toLowerCase();
+        
+        switch (section) {
+            case "replication":
+                // Redis 복제 정보 반환 (기본적으로 master로 설정)
+                String replicationInfo = "# Replication\r\n" +
+                                       "role:master\r\n" +
+                                       "connected_slaves:0\r\n" +
+                                       "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb\r\n" +
+                                       "master_repl_offset:0\r\n" +
+                                       "second_repl_offset:-1\r\n" +
+                                       "repl_backlog_active:0\r\n" +
+                                       "repl_backlog_size:1048576\r\n" +
+                                       "repl_backlog_first_byte_offset:0\r\n" +
+                                       "repl_backlog_histlen:0\r\n";
+                return RespProtocol.createBulkString(replicationInfo);
+            default:
+                return RespProtocol.createErrorResponse("unknown INFO section '" + section + "'");
+        }
     }
     
     /**
