@@ -1,0 +1,23 @@
+# Redis Server Configuration
+redis:
+  server:
+    port: 6379
+    rdb:
+      directory: "/tmp/redis-files"
+      filename: "dump.rdb"
+
+# Spring Boot Configuration
+spring:
+  application:
+    name: codecrafters-redis
+  main:
+    web-application-type: none  # 웹 서버 비활성화
+    banner-mode: off           # Spring Boot 배너 비활성화
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    io.codecrafters: DEBUG
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n" 

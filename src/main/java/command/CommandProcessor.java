@@ -1,6 +1,7 @@
 package command;
 
 import config.ServerConfig;
+import lombok.RequiredArgsConstructor;
 import protocol.RespProtocol;
 import storage.StorageManager;
 import streams.StreamsManager;
@@ -12,17 +13,14 @@ import java.util.Set;
 /**
  * Redis 명령어 처리를 담당하는 클래스
  */
+@RequiredArgsConstructor
 public class CommandProcessor {
     
     private final ServerConfig config;
     private final StorageManager storageManager;
     private final StreamsManager streamsManager;
     
-    public CommandProcessor(ServerConfig config, StorageManager storageManager, StreamsManager streamsManager) {
-        this.config = config;
-        this.storageManager = storageManager;
-        this.streamsManager = streamsManager;
-    }
+    // Lombok이 모든 final 필드를 매개변수로 받는 생성자를 자동 생성합니다
     
     /**
      * Redis 명령어를 처리하고 응답을 생성합니다.

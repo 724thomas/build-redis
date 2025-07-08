@@ -1,5 +1,6 @@
 package streams;
 
+import lombok.Getter;
 import protocol.RespProtocol;
 
 import java.util.ArrayList;
@@ -178,21 +179,17 @@ public class StreamsManager {
     /**
      * Redis Streams 엔트리를 저장하는 내부 클래스
      */
+    @Getter
     public static class StreamEntry {
         private final String id;
         private final List<String> fieldValues;
         
+        // 커스텀 생성자 - fieldValues를 새로운 ArrayList로 복사
         public StreamEntry(String id, List<String> fieldValues) {
             this.id = id;
             this.fieldValues = new ArrayList<>(fieldValues);
         }
         
-        public String getId() {
-            return id;
-        }
-        
-        public List<String> getFieldValues() {
-            return fieldValues;
-        }
+        // Lombok이 getter 메서드들을 자동 생성합니다
     }
 } 
