@@ -7,10 +7,16 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class Main {
     private static final int DEFAULT_PORT = 6379;
     private static final String PONG_RESPONSE = "+PONG\r\n";
+    private static final String OK_RESPONSE = "+OK\r\n";
+    
+    // 키-값 저장소 (스레드 안전)
+    private static final Map<String, String> keyValueStore = new ConcurrentHashMap<>();
     
     public static void main(String[] args) {
         System.out.println("Starting Redis server on port " + DEFAULT_PORT);
@@ -125,6 +131,23 @@ public class Main {
                     return createBulkString(value);
                 }
                 return "$-1\r\n"; // null bulk string
+            case "SET":
+                if (args.size() >= 3) {
+                    String key = args.get(1);
+                    String value = args.get(2);
+                    keyValueStore.put(key, value);
+                    System.out.println("Stored: " + key + " = " + value);
+                    return OK_RESPONSE;
+                }
+                return "-ERR wrong number of arguments for 'SET' command\r\n";
+            case "GET":
+                if (args.size() >= 2) {
+                    String key = args.get(1);
+                    String value = keyValueStore.get(key);
+                    System.out.println("Retrieved: " + key + " = " + value);
+                    return createBulkString(value);
+                }
+                return "-ERR wrong number of arguments for 'GET' command\r\n";
             default:
                 return "-ERR unknown command '" + command + "'\r\n";
         }
