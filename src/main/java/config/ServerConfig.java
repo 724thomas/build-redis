@@ -1,5 +1,7 @@
 package config;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.InputStream;
@@ -9,6 +11,8 @@ import java.util.Map;
  * Redis 서버 설정을 관리하는 클래스
  * application.yml 파일에서 설정을 읽어옵니다
  */
+@Getter
+@Setter
 public class ServerConfig {
     private int port = 6379;
     private String rdbDir = "/tmp/redis-files";
@@ -68,29 +72,7 @@ public class ServerConfig {
         }
     }
     
-    public int getPort() {
-        return port;
-    }
-    
-    public void setPort(int port) {
-        this.port = port;
-    }
-    
-    public String getRdbDir() {
-        return rdbDir;
-    }
-    
-    public void setRdbDir(String rdbDir) {
-        this.rdbDir = rdbDir;
-    }
-    
-    public String getRdbFilename() {
-        return rdbFilename;
-    }
-    
-    public void setRdbFilename(String rdbFilename) {
-        this.rdbFilename = rdbFilename;
-    }
+    // Lombok이 getter/setter 메서드들을 자동 생성합니다
     
     /**
      * 명령행 인수를 파싱하여 설정을 업데이트합니다.
