@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+// ===== STAGE 9: RDB file handling imports =====
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -24,15 +25,18 @@ public class Main {
     // 키별 만료 시간 저장소 (밀리초 단위 timestamp)
     private static final Map<String, Long> keyExpiryStore = new ConcurrentHashMap<>();
     
-    // RDB 파일 설정
+    // ===== STAGE 8: RDB 파일 설정 =====
     private static String rdbDir = "/tmp/redis-files";
     private static String rdbFilename = "dump.rdb";
     
+    // ===== STAGE 11-13: Redis Streams 저장소 =====
+    private static final Map<String, List<StreamEntry>> streams = new ConcurrentHashMap<>();
+    
     public static void main(String[] args) {
-        // 명령행 인수 파싱
+        // ===== STAGE 8: 명령행 인수 파싱 =====
         parseCommandLineArgs(args);
         
-        // RDB 파일에서 데이터 로드
+        // ===== STAGE 9: RDB 파일에서 데이터 로드 =====
         loadRdbFile();
         
         System.out.println("Starting Redis server on port " + DEFAULT_PORT);
@@ -173,10 +177,16 @@ public class Main {
                 return handleSetCommand(args);
             case "GET":
                 return handleGetCommand(args);
-            case "CONFIG":
+            case "CONFIG":  // ===== STAGE 8: CONFIG GET 명령어 =====
                 return handleConfigCommand(args);
-            case "KEYS":
+            case "KEYS":    // ===== STAGE 9: KEYS 명령어 =====
                 return handleKeysCommand(args);
+            case "XADD":    // ===== STAGE 11: Redis Streams XADD 명령어 =====
+                return handleXAddCommand(args);
+            case "XRANGE":  // ===== STAGE 12: Redis Streams XRANGE 명령어 =====
+                return handleXRangeCommand(args);
+            case "XREAD":   // ===== STAGE 13: Redis Streams XREAD 명령어 =====
+                return handleXReadCommand(args);
             default:
                 return "-ERR unknown command '" + command + "'\r\n";
         }
@@ -218,7 +228,8 @@ public class Main {
     }
     
     /**
-     * GET 명령어를 처리합니다. 만료된 키는 자동으로 삭제합니다.
+     * ===== STAGE 10: GET 명령어를 처리합니다. 만료된 키는 자동으로 삭제합니다. =====
+     * ===== RDB에서 로드된 데이터도 함께 처리 =====
      */
     private static String handleGetCommand(List<String> args) {
         if (args.size() < 2) {
@@ -310,7 +321,7 @@ public class Main {
     }
     
     /**
-     * KEYS 명령어를 처리합니다. 패턴 "*"만 지원합니다.
+     * ===== STAGE 9: KEYS 명령어를 처리합니다. 패턴 "*"만 지원합니다. =====
      */
     private static String handleKeysCommand(List<String> args) {
         if (args.size() < 2) {
@@ -333,7 +344,7 @@ public class Main {
     }
     
     /**
-     * 만료된 키들을 정리합니다.
+     * ===== STAGE 9: 만료된 키들을 정리합니다. =====
      */
     private static void cleanExpiredKeys() {
         List<String> expiredKeys = new ArrayList<>();
@@ -353,7 +364,7 @@ public class Main {
     }
     
     /**
-     * RDB 파일에서 데이터를 로드합니다.
+     * ===== STAGE 9: RDB 파일에서 데이터를 로드합니다. =====
      */
     private static void loadRdbFile() {
         Path rdbPath = Paths.get(rdbDir, rdbFilename);
@@ -374,7 +385,8 @@ public class Main {
     }
     
     /**
-     * RDB 파일 데이터를 파싱합니다.
+     * ===== STAGE 9: RDB 파일 데이터를 파싱합니다. =====
+     * ===== Redis RDB 파일 형식 완전 지원 =====
      */
     private static void parseRdbFile(byte[] data) {
         if (data.length < 9) {
@@ -497,7 +509,7 @@ public class Main {
     }
     
     /**
-     * RDB 파일에서 크기 인코딩된 값을 파싱합니다.
+     * ===== STAGE 9: RDB 파일에서 크기 인코딩된 값을 파싱합니다. =====
      */
     private static RdbParseResult parseSize(byte[] data, int pos) {
         if (pos >= data.length) return null;
@@ -525,7 +537,7 @@ public class Main {
     }
     
     /**
-     * RDB 파일에서 문자열을 파싱합니다.
+     * ===== STAGE 9: RDB 파일에서 문자열을 파싱합니다. =====
      */
     private static RdbParseResult parseString(byte[] data, int pos) {
         RdbParseResult sizeResult = parseSize(data, pos);
@@ -573,6 +585,199 @@ public class Main {
     /**
      * RDB 파싱 결과를 담는 클래스
      */
+    /**
+     * ===== STAGE 11: Redis Streams XADD 명령어를 처리합니다. =====
+     */
+    private static String handleXAddCommand(List<String> args) {
+        if (args.size() < 4) {
+            return "-ERR wrong number of arguments for 'XADD' command\r\n";
+        }
+        
+        String streamKey = args.get(1);
+        String entryId = args.get(2);
+        
+        // 필드-값 쌍 추출
+        List<String> fieldValues = args.subList(3, args.size());
+        if (fieldValues.size() % 2 != 0) {
+            return "-ERR wrong number of arguments for 'XADD' command\r\n";
+        }
+        
+        // 엔트리 ID 검증 및 처리
+        String finalEntryId = processEntryId(streamKey, entryId);
+        if (finalEntryId.startsWith("-ERR")) {
+            return finalEntryId;
+        }
+        
+        // 스트림 엔트리 생성
+        StreamEntry entry = new StreamEntry(finalEntryId, fieldValues);
+        
+        // 스트림에 추가
+        streams.computeIfAbsent(streamKey, k -> new ArrayList<>()).add(entry);
+        
+        System.out.println("Added stream entry: " + streamKey + " " + finalEntryId);
+        return createBulkString(finalEntryId);
+    }
+    
+    /**
+     * ===== STAGE 12: Redis Streams XRANGE 명령어를 처리합니다. =====
+     */
+    private static String handleXRangeCommand(List<String> args) {
+        if (args.size() < 4) {
+            return "-ERR wrong number of arguments for 'XRANGE' command\r\n";
+        }
+        
+        String streamKey = args.get(1);
+        String start = args.get(2);
+        String end = args.get(3);
+        
+        List<StreamEntry> streamEntries = streams.get(streamKey);
+        if (streamEntries == null || streamEntries.isEmpty()) {
+            return "*0\r\n"; // empty array
+        }
+        
+        List<StreamEntry> result = new ArrayList<>();
+        
+        for (StreamEntry entry : streamEntries) {
+            if (isInRange(entry.id, start, end)) {
+                result.add(entry);
+            }
+        }
+        
+        return formatStreamEntries(result);
+    }
+    
+    /**
+     * ===== STAGE 13: Redis Streams XREAD 명령어를 처리합니다. =====
+     */
+    private static String handleXReadCommand(List<String> args) {
+        if (args.size() < 4) {
+            return "-ERR wrong number of arguments for 'XREAD' command\r\n";
+        }
+        
+        // XREAD streams streamKey lastId
+        if (!"streams".equalsIgnoreCase(args.get(1))) {
+            return "-ERR wrong arguments for 'XREAD' command\r\n";
+        }
+        
+        String streamKey = args.get(2);
+        String lastId = args.get(3);
+        
+        List<StreamEntry> streamEntries = streams.get(streamKey);
+        if (streamEntries == null || streamEntries.isEmpty()) {
+            return "*0\r\n"; // empty array
+        }
+        
+        List<StreamEntry> result = new ArrayList<>();
+        
+        for (StreamEntry entry : streamEntries) {
+            if (compareIds(entry.id, lastId) > 0) {
+                result.add(entry);
+            }
+        }
+        
+        if (result.isEmpty()) {
+            return "*0\r\n";
+        }
+        
+        // XREAD 형식: [streamKey, [entries]]
+        StringBuilder sb = new StringBuilder();
+        sb.append("*1\r\n"); // 1개 스트림
+        sb.append("*2\r\n"); // [streamKey, entries]
+        sb.append(createBulkString(streamKey));
+        sb.append(formatStreamEntries(result));
+        
+        return sb.toString();
+    }
+    
+    /**
+     * ===== STAGE 11: 엔트리 ID를 처리합니다 (자동 생성 포함) =====
+     */
+    private static String processEntryId(String streamKey, String entryId) {
+        if ("*".equals(entryId)) {
+            // 자동 ID 생성
+            long currentTime = System.currentTimeMillis();
+            return currentTime + "-0";
+        }
+        
+        if (entryId.endsWith("-*")) {
+            // 시간은 주어지고 시퀀스는 자동 생성
+            String timeStr = entryId.substring(0, entryId.length() - 2);
+            return timeStr + "-0";
+        }
+        
+        // ID 검증
+        if ("0-0".equals(entryId)) {
+            return "-ERR The ID specified in XADD must be greater than 0-0\r\n";
+        }
+        
+        // 기존 엔트리와 비교
+        List<StreamEntry> streamEntries = streams.get(streamKey);
+        if (streamEntries != null && !streamEntries.isEmpty()) {
+            StreamEntry lastEntry = streamEntries.get(streamEntries.size() - 1);
+            if (compareIds(entryId, lastEntry.id) <= 0) {
+                return "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n";
+            }
+        }
+        
+        return entryId;
+    }
+    
+    /**
+     * ===== STAGE 12: ID가 범위 내에 있는지 확인합니다 =====
+     */
+    private static boolean isInRange(String id, String start, String end) {
+        if ("-".equals(start)) {
+            start = "0-0";
+        }
+        if ("+".equals(end)) {
+            return compareIds(id, start) >= 0;
+        }
+        
+        return compareIds(id, start) >= 0 && compareIds(id, end) <= 0;
+    }
+    
+    /**
+     * ===== STAGE 11-13: 두 엔트리 ID를 비교합니다 =====
+     */
+    private static int compareIds(String id1, String id2) {
+        String[] parts1 = id1.split("-");
+        String[] parts2 = id2.split("-");
+        
+        long time1 = Long.parseLong(parts1[0]);
+        long time2 = Long.parseLong(parts2[0]);
+        
+        if (time1 != time2) {
+            return Long.compare(time1, time2);
+        }
+        
+        long seq1 = parts1.length > 1 ? Long.parseLong(parts1[1]) : 0;
+        long seq2 = parts2.length > 1 ? Long.parseLong(parts2[1]) : 0;
+        
+        return Long.compare(seq1, seq2);
+    }
+    
+    /**
+     * ===== STAGE 12-13: 스트림 엔트리들을 RESP 형식으로 포맷합니다 =====
+     */
+    private static String formatStreamEntries(List<StreamEntry> entries) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("*").append(entries.size()).append("\r\n");
+        
+        for (StreamEntry entry : entries) {
+            sb.append("*2\r\n"); // [id, [field, value, ...]]
+            sb.append(createBulkString(entry.id));
+            sb.append("*").append(entry.fieldValues.size()).append("\r\n");
+            for (String fieldValue : entry.fieldValues) {
+                sb.append(createBulkString(fieldValue));
+            }
+        }
+        
+        return sb.toString();
+    }
+    
+    /**
+     * ===== STAGE 9: RDB 파싱 결과를 저장하는 헬퍼 클래스 =====
+     */
     private static class RdbParseResult {
         final int value;
         final int nextPos;
@@ -582,6 +787,19 @@ public class Main {
             this.value = value;
             this.nextPos = nextPos;
             this.stringValue = stringValue;
+        }
+    }
+    
+    /**
+     * ===== STAGE 11-13: Redis Streams 엔트리를 저장하는 클래스 =====
+     */
+    private static class StreamEntry {
+        final String id;
+        final List<String> fieldValues;
+        
+        StreamEntry(String id, List<String> fieldValues) {
+            this.id = id;
+            this.fieldValues = new ArrayList<>(fieldValues);
         }
     }
 }
