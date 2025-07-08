@@ -17,6 +17,8 @@ public class Main {
     
     // 키-값 저장소 (스레드 안전)
     private static final Map<String, String> keyValueStore = new ConcurrentHashMap<>();
+    // 키별 만료 시간 저장소 (밀리초 단위 timestamp)
+    private static final Map<String, Long> keyExpiryStore = new ConcurrentHashMap<>();
     
     public static void main(String[] args) {
         System.out.println("Starting Redis server on port " + DEFAULT_PORT);
@@ -132,25 +134,82 @@ public class Main {
                 }
                 return "$-1\r\n"; // null bulk string
             case "SET":
-                if (args.size() >= 3) {
-                    String key = args.get(1);
-                    String value = args.get(2);
-                    keyValueStore.put(key, value);
-                    System.out.println("Stored: " + key + " = " + value);
-                    return OK_RESPONSE;
-                }
-                return "-ERR wrong number of arguments for 'SET' command\r\n";
+                return handleSetCommand(args);
             case "GET":
-                if (args.size() >= 2) {
-                    String key = args.get(1);
-                    String value = keyValueStore.get(key);
-                    System.out.println("Retrieved: " + key + " = " + value);
-                    return createBulkString(value);
-                }
-                return "-ERR wrong number of arguments for 'GET' command\r\n";
+                return handleGetCommand(args);
             default:
                 return "-ERR unknown command '" + command + "'\r\n";
         }
+    }
+    
+    /**
+     * SET 명령어를 처리합니다. PX 옵션을 지원합니다.
+     * 형식: SET key value [PX milliseconds]
+     */
+    private static String handleSetCommand(List<String> args) {
+        if (args.size() < 3) {
+            return "-ERR wrong number of arguments for 'SET' command\r\n";
+        }
+        
+        String key = args.get(1);
+        String value = args.get(2);
+        
+        // PX 옵션 확인
+        if (args.size() >= 5 && "PX".equalsIgnoreCase(args.get(3))) {
+            try {
+                long expireInMs = Long.parseLong(args.get(4));
+                long expiryTime = System.currentTimeMillis() + expireInMs;
+                
+                keyValueStore.put(key, value);
+                keyExpiryStore.put(key, expiryTime);
+                
+                System.out.println("Stored with expiry: " + key + " = " + value + " (expires at: " + expiryTime + ")");
+            } catch (NumberFormatException e) {
+                return "-ERR value is not an integer or out of range\r\n";
+            }
+        } else {
+            // 일반 SET (만료 시간 없음)
+            keyValueStore.put(key, value);
+            keyExpiryStore.remove(key); // 기존 만료 시간 제거
+            System.out.println("Stored: " + key + " = " + value);
+        }
+        
+        return OK_RESPONSE;
+    }
+    
+    /**
+     * GET 명령어를 처리합니다. 만료된 키는 자동으로 삭제합니다.
+     */
+    private static String handleGetCommand(List<String> args) {
+        if (args.size() < 2) {
+            return "-ERR wrong number of arguments for 'GET' command\r\n";
+        }
+        
+        String key = args.get(1);
+        
+        // 만료 시간 검사
+        if (isKeyExpired(key)) {
+            // 만료된 키 삭제
+            keyValueStore.remove(key);
+            keyExpiryStore.remove(key);
+            System.out.println("Key expired and removed: " + key);
+            return "$-1\r\n"; // null bulk string
+        }
+        
+        String value = keyValueStore.get(key);
+        System.out.println("Retrieved: " + key + " = " + value);
+        return createBulkString(value);
+    }
+    
+    /**
+     * 키가 만료되었는지 확인합니다.
+     */
+    private static boolean isKeyExpired(String key) {
+        Long expiryTime = keyExpiryStore.get(key);
+        if (expiryTime == null) {
+            return false; // 만료 시간이 설정되지 않음
+        }
+        return System.currentTimeMillis() > expiryTime;
     }
     
     /**
