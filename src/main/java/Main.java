@@ -16,7 +16,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class Main {
-    private static final int DEFAULT_PORT = 6379;
+    private static int serverPort = 6379; // 설정 가능한 포트
     private static final String PONG_RESPONSE = "+PONG\r\n";
     private static final String OK_RESPONSE = "+OK\r\n";
     
@@ -39,11 +39,11 @@ public class Main {
         // ===== STAGE 9: RDB 파일에서 데이터 로드 =====
         loadRdbFile();
         
-        System.out.println("Starting Redis server on port " + DEFAULT_PORT);
+        System.out.println("Starting Redis server on port " + serverPort);
         System.out.println("RDB directory: " + rdbDir);
         System.out.println("RDB filename: " + rdbFilename);
         
-        try (ServerSocket serverSocket = createServerSocket(DEFAULT_PORT)) {
+        try (ServerSocket serverSocket = createServerSocket(serverPort)) {
             System.out.println("Redis server started. Waiting for connections...");
             
             while (true) {
@@ -63,7 +63,8 @@ public class Main {
     }
     
     /**
-     * 명령행 인수를 파싱합니다.
+     * ===== STAGE 8: 명령행 인수를 파싱합니다. =====
+     * ===== STAGE BW1: --port 옵션 추가 =====
      */
     private static void parseCommandLineArgs(String[] args) {
         for (int i = 0; i < args.length; i++) {
@@ -76,6 +77,15 @@ public class Main {
                 case "--dbfilename":
                     if (i + 1 < args.length) {
                         rdbFilename = args[++i];
+                    }
+                    break;
+                case "--port":
+                    if (i + 1 < args.length) {
+                        try {
+                            serverPort = Integer.parseInt(args[++i]);
+                        } catch (NumberFormatException e) {
+                            System.err.println("Invalid port number: " + args[i]);
+                        }
                     }
                     break;
             }
