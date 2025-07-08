@@ -5,6 +5,8 @@ import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.util.ArrayList;
+import java.util.List;
 
 public class Main {
     private static final int DEFAULT_PORT = 6379;
@@ -57,11 +59,14 @@ public class Main {
                 if (line.startsWith("*")) {
                     // 배열 명령어 처리
                     int arrayLength = Integer.parseInt(line.substring(1));
-                    parseRespArray(reader, arrayLength);
+                    List<String> commands = parseRespArray(reader, arrayLength);
                     
-                    // 모든 PING 명령어에 대해 PONG 응답 (Stage 2 요구사항)
-                    sendResponse(outputStream, PONG_RESPONSE);
-                    System.out.println("Sent: PONG");
+                    if (!commands.isEmpty()) {
+                        String command = commands.get(0).toUpperCase();
+                        String response = processCommand(command, commands);
+                        sendResponse(outputStream, response);
+                        System.out.println("Sent: " + response.trim());
+                    }
                 } else if (line.equals("PING")) {
                     // 단순 텍스트 PING 처리 (이전 호환성)
                     sendResponse(outputStream, PONG_RESPONSE);
@@ -87,15 +92,52 @@ public class Main {
     /**
      * RESP 배열 형식을 파싱합니다.
      */
-    private static void parseRespArray(BufferedReader reader, int arrayLength) throws IOException {
+    private static List<String> parseRespArray(BufferedReader reader, int arrayLength) throws IOException {
+        List<String> commands = new ArrayList<>();
+        
         for (int i = 0; i < arrayLength; i++) {
             String lengthLine = reader.readLine();
             if (lengthLine != null && lengthLine.startsWith("$")) {
                 int stringLength = Integer.parseInt(lengthLine.substring(1));
-                String command = reader.readLine();
-                System.out.println("Parsed command: " + command);
+                if (stringLength >= 0) {
+                    String command = reader.readLine();
+                    if (command != null) {
+                        commands.add(command);
+                        System.out.println("Parsed command part: " + command);
+                    }
+                }
             }
         }
+        
+        return commands;
+    }
+    
+    /**
+     * Redis 명령어를 처리하고 응답을 생성합니다.
+     */
+    private static String processCommand(String command, List<String> args) {
+        switch (command) {
+            case "PING":
+                return PONG_RESPONSE;
+            case "ECHO":
+                if (args.size() >= 2) {
+                    String value = args.get(1);
+                    return createBulkString(value);
+                }
+                return "$-1\r\n"; // null bulk string
+            default:
+                return "-ERR unknown command '" + command + "'\r\n";
+        }
+    }
+    
+    /**
+     * RESP bulk string 형식으로 문자열을 인코딩합니다.
+     */
+    private static String createBulkString(String value) {
+        if (value == null) {
+            return "$-1\r\n"; // null bulk string
+        }
+        return "$" + value.length() + "\r\n" + value + "\r\n";
     }
     
     /**
