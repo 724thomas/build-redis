@@ -20,8 +20,17 @@ public class Main {
     // 키별 만료 시간 저장소 (밀리초 단위 timestamp)
     private static final Map<String, Long> keyExpiryStore = new ConcurrentHashMap<>();
     
+    // RDB 파일 설정
+    private static String rdbDir = "/tmp/redis-files";
+    private static String rdbFilename = "dump.rdb";
+    
     public static void main(String[] args) {
+        // 명령행 인수 파싱
+        parseCommandLineArgs(args);
+        
         System.out.println("Starting Redis server on port " + DEFAULT_PORT);
+        System.out.println("RDB directory: " + rdbDir);
+        System.out.println("RDB filename: " + rdbFilename);
         
         try (ServerSocket serverSocket = createServerSocket(DEFAULT_PORT)) {
             System.out.println("Redis server started. Waiting for connections...");
@@ -39,6 +48,26 @@ public class Main {
             }
         } catch (IOException e) {
             System.err.println("Failed to start Redis server: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 명령행 인수를 파싱합니다.
+     */
+    private static void parseCommandLineArgs(String[] args) {
+        for (int i = 0; i < args.length; i++) {
+            switch (args[i]) {
+                case "--dir":
+                    if (i + 1 < args.length) {
+                        rdbDir = args[++i];
+                    }
+                    break;
+                case "--dbfilename":
+                    if (i + 1 < args.length) {
+                        rdbFilename = args[++i];
+                    }
+                    break;
+            }
         }
     }
     
@@ -137,6 +166,8 @@ public class Main {
                 return handleSetCommand(args);
             case "GET":
                 return handleGetCommand(args);
+            case "CONFIG":
+                return handleConfigCommand(args);
             default:
                 return "-ERR unknown command '" + command + "'\r\n";
         }
@@ -228,5 +259,44 @@ public class Main {
     private static void sendResponse(OutputStream outputStream, String response) throws IOException {
         outputStream.write(response.getBytes());
         outputStream.flush();
+    }
+    
+    /**
+     * CONFIG 명령어를 처리합니다.
+     */
+    private static String handleConfigCommand(List<String> args) {
+        if (args.size() < 3) {
+            return "-ERR wrong number of arguments for 'CONFIG' command\r\n";
+        }
+        
+        String subCommand = args.get(1).toUpperCase();
+        if (!"GET".equals(subCommand)) {
+            return "-ERR unknown subcommand '" + args.get(1) + "'\r\n";
+        }
+        
+        String parameter = args.get(2);
+        
+        switch (parameter.toLowerCase()) {
+            case "dir":
+                return createRespArray(new String[]{"dir", rdbDir});
+            case "dbfilename":
+                return createRespArray(new String[]{"dbfilename", rdbFilename});
+            default:
+                return "*0\r\n"; // empty array for unknown parameters
+        }
+    }
+    
+    /**
+     * RESP 배열을 생성합니다.
+     */
+    private static String createRespArray(String[] elements) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("*").append(elements.length).append("\r\n");
+        
+        for (String element : elements) {
+            sb.append(createBulkString(element));
+        }
+        
+        return sb.toString();
     }
 }
