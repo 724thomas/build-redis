@@ -46,13 +46,24 @@ public class Main {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
              OutputStream outputStream = clientSocket.getOutputStream()) {
             
-            String command;
-            while ((command = reader.readLine()) != null) {
-                System.out.println("Received: " + command);
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println("Received: " + line);
                 
-                // 현재는 모든 명령어에 대해 PONG 응답 (Stage 2 요구사항)
-                sendResponse(outputStream, PONG_RESPONSE);
-                System.out.println("Sent: PONG");
+                // RESP 프로토콜 파싱
+                if (line.startsWith("*")) {
+                    // 배열 명령어 처리
+                    int arrayLength = Integer.parseInt(line.substring(1));
+                    parseRespArray(reader, arrayLength);
+                    
+                    // 모든 PING 명령어에 대해 PONG 응답 (Stage 2 요구사항)
+                    sendResponse(outputStream, PONG_RESPONSE);
+                    System.out.println("Sent: PONG");
+                } else if (line.equals("PING")) {
+                    // 단순 텍스트 PING 처리 (이전 호환성)
+                    sendResponse(outputStream, PONG_RESPONSE);
+                    System.out.println("Sent: PONG");
+                }
             }
             
         } catch (SocketException e) {
@@ -62,6 +73,20 @@ public class Main {
         }
         
         System.out.println("Client connection closed: " + clientSocket.getRemoteSocketAddress());
+    }
+    
+    /**
+     * RESP 배열 형식을 파싱합니다.
+     */
+    private static void parseRespArray(BufferedReader reader, int arrayLength) throws IOException {
+        for (int i = 0; i < arrayLength; i++) {
+            String lengthLine = reader.readLine();
+            if (lengthLine != null && lengthLine.startsWith("$")) {
+                int stringLength = Integer.parseInt(lengthLine.substring(1));
+                String command = reader.readLine();
+                System.out.println("Parsed command: " + command);
+            }
+        }
     }
     
     /**
