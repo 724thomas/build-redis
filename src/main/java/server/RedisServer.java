@@ -88,16 +88,25 @@ public class RedisServer {
                 
                 // Stage 18: PING 명령어를 RESP Array 형식으로 전송
                 sendPingToMaster(outputStream);
+                String pingResponse = readRespResponse(inputStream);
+                System.out.println("Master responded to PING: " + pingResponse);
                 
-                // master의 응답 읽기
-                String response = readMasterResponse(inputStream);
-                System.out.println("Master responded to PING: " + response.trim());
+                // Stage 19: REPLCONF listening-port <PORT> 전송
+                sendReplconfListeningPort(outputStream);
+                String replconfPortResponse = readRespResponse(inputStream);
+                System.out.println("Master responded to REPLCONF listening-port: " + replconfPortResponse);
+                
+                // Stage 19: REPLCONF capa psync2 전송
+                sendReplconfCapabilities(outputStream);
+                String replconfCapaResponse = readRespResponse(inputStream);
+                System.out.println("Master responded to REPLCONF capa: " + replconfCapaResponse);
                 
                 // 연결 유지 (후속 stage에서 추가 handshake 진행)
-                // TODO: Stage 19, 20에서 REPLCONF와 PSYNC 구현
+                // TODO: Stage 20에서 PSYNC 구현
                 
             } catch (IOException e) {
                 System.err.println("Failed to connect to master: " + e.getMessage());
+                e.printStackTrace();
             }
         }).start();
     }
@@ -110,14 +119,32 @@ public class RedisServer {
         String pingCommand = "*1\r\n$4\r\nPING\r\n";
         outputStream.write(pingCommand.getBytes());
         outputStream.flush();
-        System.out.println("Sent PING to master: " + pingCommand.trim());
+        System.out.println("Sent PING to master: " + pingCommand.replace("\r\n", "\\r\\n"));
     }
     
     /**
-     * master로부터 응답을 읽습니다.
+     * master에게 REPLCONF listening-port 명령어를 전송합니다.
      */
-    private String readMasterResponse(BufferedReader inputStream) throws IOException {
-        return inputStream.readLine();
+    private void sendReplconfListeningPort(OutputStream outputStream) throws IOException {
+        // REPLCONF listening-port <PORT> 명령어를 RESP Array로 인코딩
+        // *3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n6380\r\n
+        String portStr = String.valueOf(config.getPort());
+        String command = "*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$" + portStr.length() + "\r\n" + portStr + "\r\n";
+        outputStream.write(command.getBytes());
+        outputStream.flush();
+        System.out.println("Sent REPLCONF listening-port to master: " + command.replace("\r\n", "\\r\\n"));
+    }
+    
+    /**
+     * master에게 REPLCONF capa psync2 명령어를 전송합니다.
+     */
+    private void sendReplconfCapabilities(OutputStream outputStream) throws IOException {
+        // REPLCONF capa psync2 명령어를 RESP Array로 인코딩
+        // *3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n
+        String command = "*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n";
+        outputStream.write(command.getBytes());
+        outputStream.flush();
+        System.out.println("Sent REPLCONF capa to master: " + command.replace("\r\n", "\\r\\n"));
     }
     
     /**
@@ -191,5 +218,28 @@ public class RedisServer {
     private void sendResponse(OutputStream outputStream, String response) throws IOException {
         outputStream.write(response.getBytes());
         outputStream.flush();
+    }
+    
+    /**
+     * master로부터 RESP 응답을 읽습니다.
+     */
+    private String readRespResponse(BufferedReader inputStream) throws IOException {
+        StringBuilder response = new StringBuilder();
+        String line = inputStream.readLine();
+        
+        if (line == null) {
+            throw new IOException("Unexpected end of stream from master");
+        }
+        
+        response.append(line);
+        
+        // RESP Simple String (+PONG) 처리
+        if (line.startsWith("+")) {
+            return response.toString();
+        }
+        
+        // 다른 RESP 타입도 처리 가능하도록 확장
+        // 현재는 Simple String만 처리
+        return response.toString();
     }
 } 
