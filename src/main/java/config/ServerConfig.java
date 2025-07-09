@@ -1,13 +1,8 @@
 package config;
 
-import lombok.Getter;
-import lombok.Setter;
-
 /**
  * Redis 서버 설정을 관리하는 클래스
  */
-@Getter
-@Setter
 public class ServerConfig {
     private int port = 6379;
     private String rdbDir = "/tmp/redis-files";
@@ -22,6 +17,56 @@ public class ServerConfig {
         System.out.println("  포트: " + this.port);
         System.out.println("  RDB 디렉토리: " + this.rdbDir);
         System.out.println("  RDB 파일명: " + this.rdbFilename);
+    }
+    
+    // Getter 메서드들
+    public int getPort() {
+        return port;
+    }
+    
+    public String getRdbDir() {
+        return rdbDir;
+    }
+    
+    public String getRdbFilename() {
+        return rdbFilename;
+    }
+    
+    public boolean isReplica() {
+        return isReplica;
+    }
+    
+    public String getMasterHost() {
+        return masterHost;
+    }
+    
+    public int getMasterPort() {
+        return masterPort;
+    }
+    
+    // Setter 메서드들
+    public void setPort(int port) {
+        this.port = port;
+    }
+    
+    public void setRdbDir(String rdbDir) {
+        this.rdbDir = rdbDir;
+    }
+    
+    public void setRdbFilename(String rdbFilename) {
+        this.rdbFilename = rdbFilename;
+    }
+    
+    public void setReplica(boolean replica) {
+        isReplica = replica;
+    }
+    
+    public void setMasterHost(String masterHost) {
+        this.masterHost = masterHost;
+    }
+    
+    public void setMasterPort(int masterPort) {
+        this.masterPort = masterPort;
     }
     
     /**
