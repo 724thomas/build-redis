@@ -48,6 +48,11 @@ public class RedisServer {
         System.out.println("RDB directory: " + config.getRdbDir());
         System.out.println("RDB filename: " + config.getRdbFilename());
         
+        // replica 모드인 경우 master에게 연결
+        if (config.isReplica()) {
+            startReplicationHandshake();
+        }
+        
         try (ServerSocket serverSocket = createServerSocket(config.getPort())) {
             System.out.println("Redis server started. Waiting for connections...");
             
@@ -65,6 +70,54 @@ public class RedisServer {
         } catch (IOException e) {
             System.err.println("Failed to start Redis server: " + e.getMessage());
         }
+    }
+    
+    /**
+     * master와의 replication handshake를 시작합니다.
+     */
+    private void startReplicationHandshake() {
+        new Thread(() -> {
+            try {
+                System.out.println("Connecting to master " + config.getMasterHost() + ":" + config.getMasterPort());
+                
+                Socket masterSocket = new Socket(config.getMasterHost(), config.getMasterPort());
+                OutputStream outputStream = masterSocket.getOutputStream();
+                BufferedReader inputStream = new BufferedReader(new InputStreamReader(masterSocket.getInputStream()));
+                
+                System.out.println("Connected to master. Starting handshake...");
+                
+                // Stage 18: PING 명령어를 RESP Array 형식으로 전송
+                sendPingToMaster(outputStream);
+                
+                // master의 응답 읽기
+                String response = readMasterResponse(inputStream);
+                System.out.println("Master responded to PING: " + response.trim());
+                
+                // 연결 유지 (후속 stage에서 추가 handshake 진행)
+                // TODO: Stage 19, 20에서 REPLCONF와 PSYNC 구현
+                
+            } catch (IOException e) {
+                System.err.println("Failed to connect to master: " + e.getMessage());
+            }
+        }).start();
+    }
+    
+    /**
+     * master에게 PING 명령어를 RESP Array 형식으로 전송합니다.
+     */
+    private void sendPingToMaster(OutputStream outputStream) throws IOException {
+        // PING 명령어를 RESP Array로 인코딩: *1\r\n$4\r\nPING\r\n
+        String pingCommand = "*1\r\n$4\r\nPING\r\n";
+        outputStream.write(pingCommand.getBytes());
+        outputStream.flush();
+        System.out.println("Sent PING to master: " + pingCommand.trim());
+    }
+    
+    /**
+     * master로부터 응답을 읽습니다.
+     */
+    private String readMasterResponse(BufferedReader inputStream) throws IOException {
+        return inputStream.readLine();
     }
     
     /**

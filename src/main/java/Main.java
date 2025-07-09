@@ -13,7 +13,6 @@ public class Main {
         // 명령행 인수로 설정 오버라이드
         config.parseCommandLineArgs(args);
         
-        
         if (config.isReplica()) {
             System.out.println("Replica 모드로 시작: 마스터 " + config.getMasterHost() + ":" + config.getMasterPort());
         } else {
