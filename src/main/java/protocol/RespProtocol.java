@@ -87,4 +87,29 @@ public class RespProtocol {
     public static String createEmptyArray() {
         return "*0\r\n";
     }
+    
+    /**
+     * null 배열을 RESP 형식으로 생성합니다.
+     */
+    public static String createNullArray() {
+        return "*-1\r\n";
+    }
+    
+    /**
+     * 여러 개의 bulk string을 배열로 생성합니다.
+     */
+    public static String createBulkStringArray(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return createEmptyArray();
+        }
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append("*").append(values.size()).append("\r\n");
+        
+        for (String value : values) {
+            sb.append(createBulkString(value));
+        }
+        
+        return sb.toString();
+    }
 } 
