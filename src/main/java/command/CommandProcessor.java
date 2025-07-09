@@ -43,6 +43,10 @@ public class CommandProcessor {
                 return handleKeysCommand(args);
             case "INFO":
                 return handleInfoCommand(args);
+            case "REPLCONF":
+                return handleReplconfCommand(args);
+            case "PSYNC":
+                return handlePsyncCommand(args);
             case "XADD":
                 return handleXAddCommand(args);
             case "XRANGE":
@@ -208,6 +212,45 @@ public class CommandProcessor {
         }
         
         return RespProtocol.createBulkString(replicationInfo.toString());
+    }
+    
+
+    
+    /**
+     * REPLCONF 명령어를 처리합니다.
+     * Stage 21: master가 replica로부터 REPLCONF를 받을 때 +OK 응답
+     */
+    private String handleReplconfCommand(List<String> args) {
+        if (args.size() < 2) {
+            return RespProtocol.createErrorResponse("wrong number of arguments for 'REPLCONF' command");
+        }
+        
+        // REPLCONF의 모든 subcommand에 대해 OK 응답
+        // listening-port, capa 등의 인수는 현재 단계에서는 무시
+        return RespProtocol.OK_RESPONSE;
+    }
+    
+    /**
+     * PSYNC 명령어를 처리합니다.
+     * Stage 22: master가 replica로부터 PSYNC ? -1을 받을 때 FULLRESYNC 응답
+     */
+    private String handlePsyncCommand(List<String> args) {
+        if (args.size() < 3) {
+            return RespProtocol.createErrorResponse("wrong number of arguments for 'PSYNC' command");
+        }
+        
+        String replId = args.get(1);
+        String offset = args.get(2);
+        
+        // 첫 연결이므로 ? -1이어야 함
+        if ("?".equals(replId) && "-1".equals(offset)) {
+            // FULLRESYNC <REPL_ID> 0 응답
+            String masterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb";
+            String response = "+FULLRESYNC " + masterReplId + " 0\r\n";
+            return response;
+        }
+        
+        return RespProtocol.createErrorResponse("unsupported PSYNC parameters");
     }
     
     /**
