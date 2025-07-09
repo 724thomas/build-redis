@@ -1,7 +1,6 @@
 package command;
 
 import config.ServerConfig;
-import lombok.RequiredArgsConstructor;
 import protocol.RespProtocol;
 import storage.StorageManager;
 import streams.StreamsManager;
@@ -13,14 +12,17 @@ import java.util.Set;
 /**
  * Redis 명령어 처리를 담당하는 클래스
  */
-@RequiredArgsConstructor
 public class CommandProcessor {
     
     private final ServerConfig config;
     private final StorageManager storageManager;
     private final StreamsManager streamsManager;
     
-    // Lombok이 모든 final 필드를 매개변수로 받는 생성자를 자동 생성합니다
+    public CommandProcessor(ServerConfig config, StorageManager storageManager, StreamsManager streamsManager) {
+        this.config = config;
+        this.storageManager = storageManager;
+        this.streamsManager = streamsManager;
+    }
     
     /**
      * Redis 명령어를 처리하고 응답을 생성합니다.
@@ -170,21 +172,42 @@ public class CommandProcessor {
         
         switch (section) {
             case "replication":
-                // Redis 복제 정보 반환 (기본적으로 master로 설정)
-                String replicationInfo = "# Replication\r\n" +
-                                       "role:master\r\n" +
-                                       "connected_slaves:0\r\n" +
-                                       "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb\r\n" +
-                                       "master_repl_offset:0\r\n" +
-                                       "second_repl_offset:-1\r\n" +
-                                       "repl_backlog_active:0\r\n" +
-                                       "repl_backlog_size:1048576\r\n" +
-                                       "repl_backlog_first_byte_offset:0\r\n" +
-                                       "repl_backlog_histlen:0\r\n";
-                return RespProtocol.createBulkString(replicationInfo);
+                return buildReplicationInfo();
             default:
                 return RespProtocol.createErrorResponse("unknown INFO section '" + section + "'");
         }
+    }
+    
+    /**
+     * Redis 복제 정보를 생성합니다.
+     */
+    private String buildReplicationInfo() {
+        StringBuilder replicationInfo = new StringBuilder();
+        replicationInfo.append("# Replication\r\n");
+        
+        if (config.isReplica()) {
+            replicationInfo.append("role:slave\r\n");
+            replicationInfo.append("master_host:").append(config.getMasterHost()).append("\r\n");
+            replicationInfo.append("master_port:").append(config.getMasterPort()).append("\r\n");
+            replicationInfo.append("master_link_status:up\r\n");
+            replicationInfo.append("master_last_io_seconds_ago:0\r\n");
+            replicationInfo.append("master_sync_in_progress:0\r\n");
+            replicationInfo.append("slave_repl_offset:0\r\n");
+            replicationInfo.append("slave_priority:100\r\n");
+            replicationInfo.append("slave_read_only:1\r\n");
+        } else {
+            replicationInfo.append("role:master\r\n");
+            replicationInfo.append("connected_slaves:0\r\n");
+            replicationInfo.append("master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb\r\n");
+            replicationInfo.append("master_repl_offset:0\r\n");
+            replicationInfo.append("second_repl_offset:-1\r\n");
+            replicationInfo.append("repl_backlog_active:0\r\n");
+            replicationInfo.append("repl_backlog_size:1048576\r\n");
+            replicationInfo.append("repl_backlog_first_byte_offset:0\r\n");
+            replicationInfo.append("repl_backlog_histlen:0\r\n");
+        }
+        
+        return RespProtocol.createBulkString(replicationInfo.toString());
     }
     
     /**

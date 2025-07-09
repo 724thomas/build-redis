@@ -81,6 +81,8 @@ public class RedisServer {
      * 클라이언트 연결을 처리하고 Redis 명령어에 응답합니다.
      */
     private void handleClient(Socket clientSocket) {
+        String clientAddress = clientSocket.getRemoteSocketAddress().toString();
+        
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
              OutputStream outputStream = clientSocket.getOutputStream()) {
             
@@ -88,38 +90,46 @@ public class RedisServer {
             while ((line = reader.readLine()) != null) {
                 System.out.println("Received: " + line);
                 
-                // RESP 프로토콜 파싱
-                if (line.startsWith("*")) {
-                    // 배열 명령어 처리
-                    int arrayLength = Integer.parseInt(line.substring(1));
-                    List<String> commands = RespProtocol.parseRespArray(reader, arrayLength);
-                    
-                    if (!commands.isEmpty()) {
-                        String command = commands.get(0).toUpperCase();
-                        String response = commandProcessor.processCommand(command, commands);
-                        sendResponse(outputStream, response);
-                        System.out.println("Sent: " + response.trim());
+                try {
+                    // RESP 프로토콜 파싱
+                    if (line.startsWith("*")) {
+                        // 배열 명령어 처리
+                        int arrayLength = Integer.parseInt(line.substring(1));
+                        List<String> commands = RespProtocol.parseRespArray(reader, arrayLength);
+                        
+                        if (!commands.isEmpty()) {
+                            String command = commands.get(0).toUpperCase();
+                            String response = commandProcessor.processCommand(command, commands);
+                            sendResponse(outputStream, response);
+                            System.out.println("Sent: " + response.trim());
+                        }
+                    } else if (line.equals("PING")) {
+                        // 단순 텍스트 PING 처리 (이전 호환성)
+                        sendResponse(outputStream, RespProtocol.PONG_RESPONSE);
+                        System.out.println("Sent: PONG");
                     }
-                } else if (line.equals("PING")) {
-                    // 단순 텍스트 PING 처리 (이전 호환성)
-                    sendResponse(outputStream, RespProtocol.PONG_RESPONSE);
-                    System.out.println("Sent: PONG");
+                } catch (NumberFormatException e) {
+                    System.err.println("Invalid command format from client " + clientAddress + ": " + e.getMessage());
+                    sendResponse(outputStream, RespProtocol.createErrorResponse("invalid command format"));
+                } catch (Exception e) {
+                    System.err.println("Error processing command from client " + clientAddress + ": " + e.getMessage());
+                    sendResponse(outputStream, RespProtocol.createErrorResponse("internal server error"));
                 }
             }
             
         } catch (SocketException e) {
-            System.out.println("Client disconnected: " + clientSocket.getRemoteSocketAddress());
+            System.out.println("Client disconnected: " + clientAddress);
         } catch (IOException e) {
-            System.err.println("Error handling client: " + e.getMessage());
+            System.err.println("Error handling client " + clientAddress + ": " + e.getMessage());
         } finally {
             try {
                 clientSocket.close();
             } catch (IOException e) {
-                System.err.println("Error closing client socket: " + e.getMessage());
+                System.err.println("Error closing client socket " + clientAddress + ": " + e.getMessage());
             }
         }
         
-        System.out.println("Client connection closed: " + clientSocket.getRemoteSocketAddress());
+        System.out.println("Client connection closed: " + clientAddress);
     }
     
     /**
