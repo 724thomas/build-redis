@@ -89,15 +89,16 @@ public class RedisServer {
                 // Stage 18: PING 명령어를 RESP Array 형식으로 전송
                 sendPingToMaster(outputStream);
                 
-                // master의 응답 읽기
-                String response = readMasterResponse(inputStream);
-                System.out.println("Master responded to PING: " + response.trim());
+                // master의 RESP 응답 읽기 (+PONG\r\n 예상)
+                String response = readRespResponse(inputStream);
+                System.out.println("Master responded to PING: " + response);
                 
                 // 연결 유지 (후속 stage에서 추가 handshake 진행)
                 // TODO: Stage 19, 20에서 REPLCONF와 PSYNC 구현
                 
             } catch (IOException e) {
                 System.err.println("Failed to connect to master: " + e.getMessage());
+                e.printStackTrace();
             }
         }).start();
     }
@@ -110,14 +111,30 @@ public class RedisServer {
         String pingCommand = "*1\r\n$4\r\nPING\r\n";
         outputStream.write(pingCommand.getBytes());
         outputStream.flush();
-        System.out.println("Sent PING to master: " + pingCommand.trim());
+        System.out.println("Sent PING to master: " + pingCommand.replace("\r\n", "\\r\\n"));
     }
     
     /**
-     * master로부터 응답을 읽습니다.
+     * master로부터 RESP 응답을 읽습니다.
      */
-    private String readMasterResponse(BufferedReader inputStream) throws IOException {
-        return inputStream.readLine();
+    private String readRespResponse(BufferedReader inputStream) throws IOException {
+        StringBuilder response = new StringBuilder();
+        String line = inputStream.readLine();
+        
+        if (line == null) {
+            throw new IOException("Unexpected end of stream from master");
+        }
+        
+        response.append(line);
+        
+        // RESP Simple String (+PONG) 처리
+        if (line.startsWith("+")) {
+            return response.toString();
+        }
+        
+        // 다른 RESP 타입도 처리 가능하도록 확장
+        // 현재는 Simple String만 처리
+        return response.toString();
     }
     
     /**
