@@ -2,7 +2,6 @@ package server;
 
 import command.CommandProcessor;
 import config.ServerConfig;
-import lombok.extern.slf4j.Slf4j;
 import protocol.RespProtocol;
 import rdb.RdbLoader;
 import replication.ReplicationClient;
@@ -22,7 +21,6 @@ import java.util.List;
  * Redis 서버의 메인 클래스
  * 서버 시작, 클라이언트 연결 처리를 담당
  */
-@Slf4j
 public class RedisServer {
     
     private final ServerConfig config;
@@ -48,35 +46,31 @@ public class RedisServer {
         // RDB 파일에서 데이터 로드
         rdbLoader.loadRdbFile();
         
-        log.info("Starting Redis server on port {}", config.getPort());
-        log.info("RDB directory: {}", config.getRdbDir());
-        log.info("RDB filename: {}", config.getRdbFilename());
+        System.out.println("Starting Redis server on port " + config.getPort());
+        System.out.println("RDB directory: " + config.getRdbDir());
+        System.out.println("RDB filename: " + config.getRdbFilename());
         
         // replica 모드인 경우 master에게 연결
         if (config.isReplica()) {
-            log.info("Starting in replica mode - connecting to master {}:{}", 
-                     config.getMasterHost(), config.getMasterPort());
             replicationClient.startHandshake();
-        } else {
-            log.info("Starting in master mode");
         }
         
         try (ServerSocket serverSocket = createServerSocket(config.getPort())) {
-            log.info("Redis server started. Waiting for connections...");
+            System.out.println("Redis server started. Waiting for connections...");
             
             while (true) {
                 try {
                     Socket clientSocket = serverSocket.accept();
-                    log.info("Client connected: {}", clientSocket.getRemoteSocketAddress());
+                    System.out.println("Client connected: " + clientSocket.getRemoteSocketAddress());
                     
                     // 클라이언트 연결을 별도의 스레드로 처리
                     new Thread(() -> handleClient(clientSocket)).start();
                 } catch (IOException e) {
-                    log.error("Error handling client connection: {}", e.getMessage());
+                    System.err.println("Error handling client connection: " + e.getMessage());
                 }
             }
         } catch (IOException e) {
-            log.error("Failed to start Redis server: {}", e.getMessage());
+            System.err.println("Failed to start Redis server: " + e.getMessage());
         }
     }
     
@@ -101,7 +95,7 @@ public class RedisServer {
             
             String line;
             while ((line = reader.readLine()) != null) {
-                log.debug("Received from {}: {}", clientAddress, line);
+                System.out.println("Received: " + line);
                 
                 try {
                     // RESP 프로토콜 파싱
@@ -114,35 +108,35 @@ public class RedisServer {
                             String command = commands.get(0).toUpperCase();
                             String response = commandProcessor.processCommand(command, commands);
                             sendResponse(outputStream, response);
-                            log.debug("Sent to {}: {}", clientAddress, response.trim());
+                            System.out.println("Sent: " + response.trim());
                         }
                     } else if (line.equals("PING")) {
                         // 단순 텍스트 PING 처리 (이전 호환성)
                         sendResponse(outputStream, RespProtocol.PONG_RESPONSE);
-                        log.debug("Sent to {}: PONG", clientAddress);
+                        System.out.println("Sent: PONG");
                     }
                 } catch (NumberFormatException e) {
-                    log.error("Invalid command format from client {}: {}", clientAddress, e.getMessage());
+                    System.err.println("Invalid command format from client " + clientAddress + ": " + e.getMessage());
                     sendResponse(outputStream, RespProtocol.createErrorResponse("invalid command format"));
                 } catch (Exception e) {
-                    log.error("Error processing command from client {}: {}", clientAddress, e.getMessage());
+                    System.err.println("Error processing command from client " + clientAddress + ": " + e.getMessage());
                     sendResponse(outputStream, RespProtocol.createErrorResponse("internal server error"));
                 }
             }
             
         } catch (SocketException e) {
-            log.info("Client disconnected: {}", clientAddress);
+            System.out.println("Client disconnected: " + clientAddress);
         } catch (IOException e) {
-            log.error("Error handling client {}: {}", clientAddress, e.getMessage());
+            System.err.println("Error handling client " + clientAddress + ": " + e.getMessage());
         } finally {
             try {
                 clientSocket.close();
             } catch (IOException e) {
-                log.error("Error closing client socket {}: {}", clientAddress, e.getMessage());
+                System.err.println("Error closing client socket " + clientAddress + ": " + e.getMessage());
             }
         }
         
-        log.info("Client connection closed: {}", clientAddress);
+        System.out.println("Client connection closed: " + clientAddress);
     }
     
     /**
