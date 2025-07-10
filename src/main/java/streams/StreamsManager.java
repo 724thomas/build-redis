@@ -18,10 +18,6 @@ public class StreamsManager {
      * 스트림에 엔트리를 추가합니다.
      */
     public String addEntry(String streamKey, String entryId, List<String> fieldValues) {
-        if (fieldValues.size() % 2 != 0) {
-            return RespProtocol.createErrorResponse("wrong number of arguments for 'XADD' command");
-        }
-        
         // 엔트리 ID 검증 및 처리
         String finalEntryId = processEntryId(streamKey, entryId);
         if (finalEntryId.startsWith("-ERR")) {
