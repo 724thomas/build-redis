@@ -329,7 +329,7 @@ public class CommandProcessor {
         String start = args.get(2);
         String end = args.get(3);
         
-        return streamsManager.getRange(key, start, end);
+        return streamsManager.xrange(key, start, end);
     }
     
     /**
