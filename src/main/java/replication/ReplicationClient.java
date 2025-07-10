@@ -9,7 +9,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.PushbackInputStream;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -20,6 +23,7 @@ public class ReplicationClient {
     
     private final ServerConfig config;
     private final CommandProcessor commandProcessor;
+    private int processedBytesOffset = 0;
     
     public ReplicationClient(ServerConfig config, CommandProcessor commandProcessor) {
         this.config = config;
@@ -42,7 +46,8 @@ public class ReplicationClient {
             
             Socket masterSocket = new Socket(config.getMasterHost(), config.getMasterPort());
             OutputStream outputStream = masterSocket.getOutputStream();
-            InputStream inputStream = masterSocket.getInputStream(); // Use raw stream
+            // We need to be able to "peek" the first byte of the RDB file vs a command
+            PushbackInputStream inputStream = new PushbackInputStream(masterSocket.getInputStream());
             
             System.out.println("Connected to master. Starting handshake...");
             
@@ -68,10 +73,9 @@ public class ReplicationClient {
             
             // Stage 23: RDB 파일 수신
             readRdbFile(inputStream);
-            System.out.println("Finished receiving RDB file from master.");
             
-            // Stage 26: 마스터로부터 명령어 전파 수신 및 처리
-            listenForMasterCommands(inputStream);
+            // Stage 26 & 28: 마스터로부터 명령어 전파 수신 및 처리
+            listenForMasterCommands(inputStream, outputStream);
             
         } catch (IOException e) {
             System.err.println("Failed to connect to master: " + e.getMessage());
@@ -150,13 +154,22 @@ public class ReplicationClient {
      * 마스터로부터 RDB 파일을 읽습니다.
      * Stage 23: RDB 파일 형식은 $<length>\\r\\n<contents> 입니다.
      */
-    private void readRdbFile(InputStream inputStream) throws IOException {
-        // 첫 바이트 '$'를 읽고 확인
+    private void readRdbFile(PushbackInputStream inputStream) throws IOException {
+        // RDB 파일 또는 다음 명령어를 확인하기 위해 첫 바이트를 읽습니다.
         int firstByte = inputStream.read();
+        if (firstByte == -1) {
+            throw new IOException("End of stream while expecting RDB file or command.");
+        }
+
+        // RDB 파일이 아니면 바이트를 다시 스트림으로 되돌리고 반환합니다.
         if (firstByte != '$') {
-            throw new IOException("Expected RDB file to start with '$', but got: " + (char) firstByte);
+            System.out.println("Did not receive RDB file (first byte: " + (char)firstByte + "). Assuming no RDB transfer and proceeding to listen for commands.");
+            inputStream.unread(firstByte);
+            return;
         }
         
+        System.out.println("Started receiving RDB file...");
+
         // RDB 파일 길이를 읽습니다.
         StringBuilder lengthStr = new StringBuilder();
         int b;
@@ -191,27 +204,95 @@ public class ReplicationClient {
     /**
      * 마스터로부터 전파되는 명령어를 지속적으로 수신하고 처리합니다.
      * Stage 26: 이 단계에서는 응답을 보내지 않습니다.
+     * Stage 28: 명령어 바이트 오프셋을 추적하고 GETACK에 응답합니다.
      */
-    private void listenForMasterCommands(InputStream masterInputStream) throws IOException {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(masterInputStream));
-        String line;
-        while ((line = reader.readLine()) != null) {
-            System.out.println("Received from master for propagation: " + line.replace("\r\n", "\\r\\n"));
-            if (line.startsWith("*")) {
-                try {
-                    int arrayLength = Integer.parseInt(line.substring(1));
-                    List<String> commands = RespProtocol.parseRespArray(reader, arrayLength);
-                    
-                    if (!commands.isEmpty()) {
-                        String command = commands.get(0).toUpperCase();
-                        // 명령어를 처리하고, 응답은 무시합니다.
-                        commandProcessor.processCommand(command, commands);
-                        System.out.println("Processed propagated command from master: " + commands);
-                    }
-                } catch (Exception e) {
-                    System.err.println("Error processing propagated command: " + e.getMessage());
+    private void listenForMasterCommands(InputStream masterInputStream, OutputStream masterOutputStream) throws IOException {
+        while (!Thread.currentThread().isInterrupted()) {
+            int commandByteCount = 0;
+
+            // Read Array Header
+            String arrayHeader = readLine(masterInputStream);
+            if (arrayHeader == null) {
+                System.out.println("Master closed the connection.");
+                break;
+            }
+            commandByteCount += arrayHeader.length(); // readLine includes \r\n
+            if (!arrayHeader.startsWith("*")) {
+                System.err.println("Warning: Expected RESP Array, but got: " + arrayHeader.replace("\r\n", "\\r\\n"));
+                continue;
+            }
+            
+            int arrayLength = Integer.parseInt(arrayHeader.substring(1, arrayHeader.length() - 2)); // remove * and \r\n
+            List<String> commandParts = new ArrayList<>();
+
+            for (int i = 0; i < arrayLength; i++) {
+                // Read Bulk String Header
+                String bulkHeader = readLine(masterInputStream);
+                if (bulkHeader == null) {
+                    throw new IOException("Unexpected end of stream: bulk header is null.");
                 }
+                commandByteCount += bulkHeader.length();
+                if (!bulkHeader.startsWith("$")) {
+                    throw new IOException("Expected Bulk String header, but got: " + bulkHeader.replace("\r\n", "\\r\\n"));
+                }
+
+                int bulkLength = Integer.parseInt(bulkHeader.substring(1, bulkHeader.length() - 2)); // remove $ and \r\n
+                if (bulkLength == -1) {
+                    commandParts.add(null); // Null bulk string
+                    continue;
+                }
+
+                // Read Bulk String Content
+                byte[] bulkContentBytes = new byte[bulkLength];
+                int totalBytesRead = 0;
+                while (totalBytesRead < bulkLength) {
+                    int bytesRead = masterInputStream.read(bulkContentBytes, totalBytesRead, bulkLength - totalBytesRead);
+                    if (bytesRead == -1) {
+                        throw new IOException("Unexpected end of stream while reading bulk string content");
+                    }
+                    totalBytesRead += bytesRead;
+                }
+                commandByteCount += totalBytesRead;
+
+                // Consume trailing \r\n
+                if (masterInputStream.read() != '\r' || masterInputStream.read() != '\n') {
+                    throw new IOException("Expected CRLF after bulk string content");
+                }
+                commandByteCount += 2;
+
+                commandParts.add(new String(bulkContentBytes, StandardCharsets.UTF_8));
+            }
+
+            if (commandParts.isEmpty()) {
+                continue;
+            }
+
+            String commandName = commandParts.get(0).toUpperCase();
+
+            if (commandName.equals("REPLCONF") && commandParts.size() >= 2 && commandParts.get(1).equalsIgnoreCase("GETACK")) {
+                String offsetStr = String.valueOf(processedBytesOffset);
+                String ackResponse = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$" + offsetStr.length() + "\r\n" + offsetStr + "\r\n";
+                masterOutputStream.write(ackResponse.getBytes(StandardCharsets.UTF_8));
+                masterOutputStream.flush();
+                System.out.println("Responded to GETACK with offset: " + processedBytesOffset);
+            } else {
+                commandProcessor.processCommand(commandName, commandParts);
+                System.out.println("Processed propagated command from master: " + commandParts);
+            }
+
+            processedBytesOffset += commandByteCount;
+        }
+    }
+
+    private String readLine(InputStream in) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        int b;
+        while ((b = in.read()) != -1) {
+            sb.append((char) b);
+            if (sb.length() >= 2 && sb.charAt(sb.length() - 2) == '\r' && sb.charAt(sb.length() - 1) == '\n') {
+                return sb.toString();
             }
         }
+        return sb.length() > 0 ? sb.toString() : null;
     }
 } 
