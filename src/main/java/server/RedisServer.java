@@ -109,6 +109,17 @@ public class RedisServer {
                             String response = commandProcessor.processCommand(command, commands);
                             sendResponse(outputStream, response);
                             System.out.println("Sent: " + response.trim());
+                            
+                            // PSYNC에 대한 특별 처리: RDB 파일 전송
+                            if (command.equals("PSYNC") && response.startsWith("+FULLRESYNC")) {
+                                byte[] rdbFileBytes = RespProtocol.EMPTY_RDB_BYTES;
+                                String rdbFilePrefix = "$" + rdbFileBytes.length + "\r\n";
+                                
+                                outputStream.write(rdbFilePrefix.getBytes());
+                                outputStream.write(rdbFileBytes);
+                                outputStream.flush();
+                                System.out.println("Sent empty RDB file.");
+                            }
                         }
                     } else if (line.equals("PING")) {
                         // 단순 텍스트 PING 처리 (이전 호환성)

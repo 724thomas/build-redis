@@ -12,6 +12,18 @@ public class RespProtocol {
     
     public static final String PONG_RESPONSE = "+PONG\r\n";
     public static final String OK_RESPONSE = "+OK\r\n";
+    private static final String EMPTY_RDB_HEX = "524544495330303131FE00FF6BFD95240E87F293";
+    public static final byte[] EMPTY_RDB_BYTES = hexStringToByteArray(EMPTY_RDB_HEX);
+
+    private static byte[] hexStringToByteArray(String s) {
+        int len = s.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            data[i / 2] = (byte) ((Character.digit(s.charAt(i), 16) << 4)
+                + Character.digit(s.charAt(i + 1), 16));
+        }
+        return data;
+    }
     
     /**
      * RESP 배열 형식을 파싱합니다.
