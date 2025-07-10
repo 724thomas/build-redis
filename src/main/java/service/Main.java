@@ -1,5 +1,6 @@
+package service;
+
 import config.ServerConfig;
-import service.RedisServer;
 
 /**
  * 애플리케이션의 메인 진입점
@@ -15,4 +16,4 @@ public class Main {
         RedisServer server = new RedisServer(config);
         server.start();
     }
-}
+} 
