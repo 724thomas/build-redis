@@ -228,7 +228,13 @@ public class CommandProcessor {
             return RespProtocol.createErrorResponse("wrong number of arguments for 'REPLCONF' command");
         }
         
-        // REPLCONF의 모든 subcommand에 대해 OK 응답
+        // Stage 27: master로부터 REPLCONF GETACK *를 받을 때 ACK 응답
+        if ("GETACK".equalsIgnoreCase(args.get(1))) {
+            // ACK 0 응답
+            return RespProtocol.createRespArray(new String[]{"REPLCONF", "ACK", "0"});
+        }
+        
+        // REPLCONF의 모든 subcommand에 대해 OK 응답 (기존 로직 유지)
         // listening-port, capa 등의 인수는 현재 단계에서는 무시
         return RespProtocol.OK_RESPONSE;
     }
