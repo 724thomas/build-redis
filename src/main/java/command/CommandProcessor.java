@@ -315,41 +315,32 @@ public class CommandProcessor {
         
         String streamKey = args.get(1);
         String entryId = args.get(2);
-        
-        // 필드-값 쌍 추출
         List<String> fieldValues = args.subList(3, args.size());
         
         return streamsManager.addEntry(streamKey, entryId, fieldValues);
     }
     
-    /**
-     * Redis Streams XRANGE 명령어를 처리합니다.
-     */
     private String handleXRangeCommand(List<String> args) {
         if (args.size() < 4) {
             return RespProtocol.createErrorResponse("wrong number of arguments for 'XRANGE' command");
         }
         
-        String streamKey = args.get(1);
+        String key = args.get(1);
         String start = args.get(2);
         String end = args.get(3);
         
-        return streamsManager.getRange(streamKey, start, end);
+        return streamsManager.getRange(key, start, end);
     }
     
     /**
      * Redis Streams XREAD 명령어를 처리합니다.
      */
     private String handleXReadCommand(List<String> args) {
-        if (args.size() < 4) {
-            return RespProtocol.createErrorResponse("wrong number of arguments for 'XREAD' command");
-        }
-        
-        // XREAD streams streamKey lastId
-        if (!"streams".equalsIgnoreCase(args.get(1))) {
+        if (args.size() < 4 || !"STREAMS".equalsIgnoreCase(args.get(1))) {
             return RespProtocol.createErrorResponse("wrong arguments for 'XREAD' command");
         }
         
+        // XREAD streams streamKey lastId
         String streamKey = args.get(2);
         String lastId = args.get(3);
         
