@@ -56,11 +56,18 @@ public class CommandProcessor {
                 return handleXRangeCommand(args);
             case "XREAD":
                 return handleXReadCommand(args);
+            case "WAIT":
+                return handleWaitCommand(args);
             default:
                 return RespProtocol.createErrorResponse("unknown command '" + command + "'");
         }
     }
-    
+
+    private String handleWaitCommand(List<String> args) {
+        // Stage 29: For now, with no replicas, WAIT should return 0 immediately.
+        return RespProtocol.createInteger(0);
+    }
+
     /**
      * PING 명령어 처리
      */
