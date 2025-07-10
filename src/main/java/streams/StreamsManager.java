@@ -14,6 +14,32 @@ import java.util.stream.Collectors;
 public class StreamsManager {
     
     private final Map<String, List<StreamEntry>> streams = new ConcurrentHashMap<>();
+
+    /**
+     * Represents a stream entry ID.
+     */
+    public record StreamId(long time, long sequence) implements Comparable<StreamId> {
+        public static StreamId fromString(String idStr) {
+            if (idStr == null || !idStr.contains("-")) {
+                throw new IllegalArgumentException("Invalid stream ID format");
+            }
+            String[] parts = idStr.split("-");
+            return new StreamId(Long.parseLong(parts[0]), Long.parseLong(parts[1]));
+        }
+
+        @Override
+        public String toString() {
+            return time + "-" + sequence;
+        }
+
+        @Override
+        public int compareTo(StreamId other) {
+            if (this.time != other.time) {
+                return Long.compare(this.time, other.time);
+            }
+            return Long.compare(this.sequence, other.sequence);
+        }
+    }
     
     /**
      * 스트림에 엔트리를 추가합니다.
@@ -22,7 +48,7 @@ public class StreamsManager {
         if (fieldValues.size() % 2 != 0) {
             return RespProtocol.createErrorResponse("wrong number of arguments for 'XADD' command");
         }
-        
+
         // 엔트리 ID 검증 및 처리
         StreamEntryId finalEntryId;
         try {
@@ -91,11 +117,14 @@ public class StreamsManager {
             return RespProtocol.createEmptyArray();
         }
         
-        StreamEntryId lastId = StreamEntryId.fromString(lastIdStr);
-        
-        List<StreamEntry> result = streamEntries.stream()
-                .filter(entry -> entry.getId().compareTo(lastId) > 0)
-                .collect(Collectors.toList());
+        List<StreamEntry> result = new ArrayList<>();
+        StreamId lastStreamId = StreamId.fromString(lastId);
+
+        for (StreamEntry entry : streamEntries) {
+            if (StreamId.fromString(entry.getId()).compareTo(lastStreamId) > 0) {
+                result.add(entry);
+            }
+        }
         
         if (result.isEmpty()) {
             return RespProtocol.createEmptyArray();
@@ -110,10 +139,15 @@ public class StreamsManager {
         
         return sb.toString();
     }
+
+    public boolean exists(String key) {
+        return streams.containsKey(key);
+    }
     
     /**
      * 엔트리 ID를 처리합니다 (자동 생성 포함)
      */
+
     private StreamEntryId processEntryId(String streamKey, String entryIdStr) {
         if ("*".equals(entryIdStr)) {
             long currentTime = System.currentTimeMillis();
@@ -155,16 +189,35 @@ public class StreamsManager {
             if (currentId.compareTo(lastId) <= 0) {
                 throw new IllegalArgumentException("The ID specified in XADD is equal or smaller than the target stream top item");
             }
-        }
+
+
+    private boolean isInRange(String id, String start, String end) {
+        StreamId streamId = StreamId.fromString(id);
+        StreamId startId = parseRangeId(start, true);
+        StreamId endId = parseRangeId(end, false);
         
-        return currentId;
+        return streamId.compareTo(startId) >= 0 && streamId.compareTo(endId) <= 0;
     }
     
+    private StreamId parseRangeId(String idStr, boolean isStart) {
+        if ("-".equals(idStr)) {
+            return new StreamId(0, 0);
+        }
+        if ("+".equals(idStr)) {
+            return new StreamId(Long.MAX_VALUE, Long.MAX_VALUE);
+        }
+        if (!idStr.contains("-")) {
+            long time = Long.parseLong(idStr);
+            return isStart ? new StreamId(time, 0) : new StreamId(time, Long.MAX_VALUE);
+        }
+        return StreamId.fromString(idStr);
+    }
+
     /**
-     * ID가 범위 내에 있는지 확인합니다
+     * 두 엔트리 ID를 비교합니다
      */
-    private boolean isInRange(StreamEntryId id, StreamEntryId start, StreamEntryId end) {
-        return id.compareTo(start) >= 0 && id.compareTo(end) <= 0;
+    private int compareIds(String id1, String id2) {
+        return StreamId.fromString(id1).compareTo(StreamId.fromString(id2));
     }
     
     /**
