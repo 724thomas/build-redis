@@ -42,36 +42,36 @@ public class ReplicationClient {
             
             Socket masterSocket = new Socket(config.getMasterHost(), config.getMasterPort());
             OutputStream outputStream = masterSocket.getOutputStream();
-            BufferedReader inputStreamReader = new BufferedReader(new InputStreamReader(masterSocket.getInputStream()));
+            InputStream inputStream = masterSocket.getInputStream(); // Use raw stream
             
             System.out.println("Connected to master. Starting handshake...");
             
             // Stage 18: PING 명령어 전송
             sendPing(outputStream);
-            String pingResponse = readResponse(inputStreamReader);
+            String pingResponse = readHandshakeResponse(inputStream);
             System.out.println("Master responded to PING: " + pingResponse);
             
             // Stage 19: REPLCONF listening-port 전송
             sendReplconfListeningPort(outputStream);
-            String replconfPortResponse = readResponse(inputStreamReader);
+            String replconfPortResponse = readHandshakeResponse(inputStream);
             System.out.println("Master responded to REPLCONF listening-port: " + replconfPortResponse);
             
             // Stage 19: REPLCONF capa psync2 전송
             sendReplconfCapabilities(outputStream);
-            String replconfCapaResponse = readResponse(inputStreamReader);
+            String replconfCapaResponse = readHandshakeResponse(inputStream);
             System.out.println("Master responded to REPLCONF capa: " + replconfCapaResponse);
             
             // Stage 20: PSYNC ? -1 전송
             sendPsync(outputStream);
-            String psyncResponse = readResponse(inputStreamReader);
+            String psyncResponse = readHandshakeResponse(inputStream);
             System.out.println("Master responded to PSYNC: " + psyncResponse);
             
             // Stage 23: RDB 파일 수신
-            readRdbFile(masterSocket.getInputStream());
+            readRdbFile(inputStream);
             System.out.println("Finished receiving RDB file from master.");
             
             // Stage 26: 마스터로부터 명령어 전파 수신 및 처리
-            listenForMasterCommands(masterSocket);
+            listenForMasterCommands(inputStream);
             
         } catch (IOException e) {
             System.err.println("Failed to connect to master: " + e.getMessage());
@@ -122,22 +122,28 @@ public class ReplicationClient {
     }
     
     /**
-     * 마스터로부터 응답을 읽습니다.
+     * 마스터로부터 핸드셰이크 응답을 한 줄 읽습니다.
+     * '+'로 시작하는 단순 문자열만 처리합니다.
      */
-    private String readResponse(BufferedReader inputStream) throws IOException {
-        String line = inputStream.readLine();
-        
-        if (line == null) {
-            throw new IOException("Unexpected end of stream from master");
+    private String readHandshakeResponse(InputStream inputStream) throws IOException {
+        StringBuilder response = new StringBuilder();
+        int b;
+        while ((b = inputStream.read()) != -1) {
+            if (b == '\r') {
+                if (inputStream.read() != '\n') { // Consume the \n
+                    throw new IOException("Malformed response from master: missing LF after CR.");
+                }
+                break;
+            }
+            response.append((char) b);
         }
         
-        // RESP Simple String (+OK, +PONG, +FULLRESYNC) 처리
-        if (line.startsWith("+")) {
-            return line;
+        // +PONG, +OK, +FULLRESYNC...
+        if (response.length() > 0 && response.charAt(0) == '+') {
+            return response.toString();
         }
         
-        // 다른 RESP 타입도 처리 가능하도록 확장
-        return line;
+        throw new IOException("Unexpected handshake response: " + response);
     }
     
     /**
@@ -186,8 +192,8 @@ public class ReplicationClient {
      * 마스터로부터 전파되는 명령어를 지속적으로 수신하고 처리합니다.
      * Stage 26: 이 단계에서는 응답을 보내지 않습니다.
      */
-    private void listenForMasterCommands(Socket masterSocket) throws IOException {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(masterSocket.getInputStream()));
+    private void listenForMasterCommands(InputStream masterInputStream) throws IOException {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(masterInputStream));
         String line;
         while ((line = reader.readLine()) != null) {
             System.out.println("Received from master for propagation: " + line.replace("\r\n", "\\r\\n"));
