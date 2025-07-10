@@ -122,10 +122,10 @@ public class StreamsManager {
     
     private StreamId parseRangeId(String idStr, boolean isStart) {
         if ("-".equals(idStr)) {
-            return new StreamId(0, 0);
+            return new StreamId(0, 0); // Represents the minimum possible ID
         }
         if ("+".equals(idStr)) {
-            return new StreamId(Long.MAX_VALUE, Long.MAX_VALUE);
+            return new StreamId(Long.MAX_VALUE, Long.MAX_VALUE); // Represents the maximum possible ID
         }
         if (!idStr.contains("-")) {
             long time = Long.parseLong(idStr);
