@@ -13,6 +13,32 @@ import java.util.concurrent.ConcurrentHashMap;
 public class StreamsManager {
     
     private final Map<String, List<StreamEntry>> streams = new ConcurrentHashMap<>();
+
+    /**
+     * Represents a stream entry ID.
+     */
+    public record StreamId(long time, long sequence) implements Comparable<StreamId> {
+        public static StreamId fromString(String idStr) {
+            if (idStr == null || !idStr.contains("-")) {
+                throw new IllegalArgumentException("Invalid stream ID format");
+            }
+            String[] parts = idStr.split("-");
+            return new StreamId(Long.parseLong(parts[0]), Long.parseLong(parts[1]));
+        }
+
+        @Override
+        public String toString() {
+            return time + "-" + sequence;
+        }
+
+        @Override
+        public int compareTo(StreamId other) {
+            if (this.time != other.time) {
+                return Long.compare(this.time, other.time);
+            }
+            return Long.compare(this.sequence, other.sequence);
+        }
+    }
     
     /**
      * 스트림에 엔트리를 추가합니다.
@@ -64,9 +90,10 @@ public class StreamsManager {
         }
         
         List<StreamEntry> result = new ArrayList<>();
-        
+        StreamId lastStreamId = StreamId.fromString(lastId);
+
         for (StreamEntry entry : streamEntries) {
-            if (compareIds(entry.getId(), lastId) > 0) {
+            if (StreamId.fromString(entry.getId()).compareTo(lastStreamId) > 0) {
                 result.add(entry);
             }
         }
@@ -93,30 +120,41 @@ public class StreamsManager {
      * 엔트리 ID를 처리합니다 (자동 생성 포함)
      */
     private String processEntryId(String streamKey, String entryId) {
+        List<StreamEntry> streamEntries = streams.get(streamKey);
+        StreamEntry lastEntry = (streamEntries != null && !streamEntries.isEmpty()) ? streamEntries.get(streamEntries.size() - 1) : null;
+        StreamId lastId = lastEntry != null ? StreamId.fromString(lastEntry.getId()) : null;
+
         if ("*".equals(entryId)) {
-            // 자동 ID 생성
             long currentTime = System.currentTimeMillis();
-            return currentTime + "-0";
+            if (lastId != null && lastId.time() == currentTime) {
+                return new StreamId(currentTime, lastId.sequence() + 1).toString();
+            }
+            return new StreamId(currentTime, 0).toString();
         }
-        
+
         if (entryId.endsWith("-*")) {
-            // 시간은 주어지고 시퀀스는 자동 생성
-            String timeStr = entryId.substring(0, entryId.length() - 2);
-            return timeStr + "-0";
+            long timePart = Long.parseLong(entryId.substring(0, entryId.indexOf('-')));
+            if (lastId != null && lastId.time() == timePart) {
+                return new StreamId(timePart, lastId.sequence() + 1).toString();
+            } else if (timePart == 0) {
+                return new StreamId(0, 1).toString();
+            }
+            return new StreamId(timePart, 0).toString();
         }
-        
-        // ID 검증
-        if ("0-0".equals(entryId)) {
+
+        StreamId newId;
+        try {
+            newId = StreamId.fromString(entryId);
+        } catch (IllegalArgumentException e) {
+            return RespProtocol.createErrorResponse("Invalid stream ID specified");
+        }
+
+        if (newId.compareTo(new StreamId(0, 0)) <= 0) {
             return RespProtocol.createErrorResponse("The ID specified in XADD must be greater than 0-0");
         }
-        
-        // 기존 엔트리와 비교
-        List<StreamEntry> streamEntries = streams.get(streamKey);
-        if (streamEntries != null && !streamEntries.isEmpty()) {
-            StreamEntry lastEntry = streamEntries.get(streamEntries.size() - 1);
-            if (compareIds(entryId, lastEntry.getId()) <= 0) {
-                return RespProtocol.createErrorResponse("The ID specified in XADD is equal or smaller than the target stream top item");
-            }
+
+        if (lastId != null && newId.compareTo(lastId) <= 0) {
+            return RespProtocol.createErrorResponse("The ID specified in XADD is equal or smaller than the target stream top item");
         }
         
         return entryId;
@@ -126,34 +164,32 @@ public class StreamsManager {
      * ID가 범위 내에 있는지 확인합니다
      */
     private boolean isInRange(String id, String start, String end) {
-        if ("-".equals(start)) {
-            start = "0-0";
-        }
-        if ("+".equals(end)) {
-            return compareIds(id, start) >= 0;
-        }
+        StreamId streamId = StreamId.fromString(id);
+        StreamId startId = parseRangeId(start, true);
+        StreamId endId = parseRangeId(end, false);
         
-        return compareIds(id, start) >= 0 && compareIds(id, end) <= 0;
+        return streamId.compareTo(startId) >= 0 && streamId.compareTo(endId) <= 0;
     }
     
+    private StreamId parseRangeId(String idStr, boolean isStart) {
+        if ("-".equals(idStr)) {
+            return new StreamId(0, 0);
+        }
+        if ("+".equals(idStr)) {
+            return new StreamId(Long.MAX_VALUE, Long.MAX_VALUE);
+        }
+        if (!idStr.contains("-")) {
+            long time = Long.parseLong(idStr);
+            return isStart ? new StreamId(time, 0) : new StreamId(time, Long.MAX_VALUE);
+        }
+        return StreamId.fromString(idStr);
+    }
+
     /**
      * 두 엔트리 ID를 비교합니다
      */
     private int compareIds(String id1, String id2) {
-        String[] parts1 = id1.split("-");
-        String[] parts2 = id2.split("-");
-        
-        long time1 = Long.parseLong(parts1[0]);
-        long time2 = Long.parseLong(parts2[0]);
-        
-        if (time1 != time2) {
-            return Long.compare(time1, time2);
-        }
-        
-        long seq1 = parts1.length > 1 ? Long.parseLong(parts1[1]) : 0;
-        long seq2 = parts2.length > 1 ? Long.parseLong(parts2[1]) : 0;
-        
-        return Long.compare(seq1, seq2);
+        return StreamId.fromString(id1).compareTo(StreamId.fromString(id2));
     }
     
     /**
