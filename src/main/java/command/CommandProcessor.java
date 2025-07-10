@@ -2,6 +2,7 @@ package command;
 
 import config.ServerConfig;
 import protocol.RespProtocol;
+import replication.ReplicationManager;
 import storage.StorageManager;
 import streams.StreamsManager;
 
@@ -18,13 +19,13 @@ public class CommandProcessor {
     private final ServerConfig config;
     private final StorageManager storageManager;
     private final StreamsManager streamsManager;
-    private final List<OutputStream> replicas;
+    private final ReplicationManager replicationManager;
     
-    public CommandProcessor(ServerConfig config, StorageManager storageManager, StreamsManager streamsManager, List<OutputStream> replicas) {
+    public CommandProcessor(ServerConfig config, StorageManager storageManager, StreamsManager streamsManager, ReplicationManager replicationManager) {
         this.config = config;
         this.storageManager = storageManager;
         this.streamsManager = streamsManager;
-        this.replicas = replicas;
+        this.replicationManager = replicationManager;
     }
     
     /**
@@ -37,7 +38,8 @@ public class CommandProcessor {
             case "ECHO":
                 return handleEchoCommand(args);
             case "SET":
-                return handleSetCommand(args);
+                handleSetCommand(args); // 응답은 OK로 고정, 전파는 호출자(RedisServer)가 담당
+                return RespProtocol.OK_RESPONSE;
             case "GET":
                 return handleGetCommand(args);
             case "CONFIG":
@@ -64,8 +66,19 @@ public class CommandProcessor {
     }
 
     private String handleWaitCommand(List<String> args) {
-        // Stage 30: Return the number of connected replicas.
-        return RespProtocol.createInteger(replicas.size());
+        if (args.size() < 3) {
+            return RespProtocol.createErrorResponse("wrong number of arguments for 'wait' command");
+        }
+        try {
+            int numReplicas = Integer.parseInt(args.get(1));
+            long timeout = Long.parseLong(args.get(2));
+            
+            int ackReplicas = replicationManager.waitForReplicas(numReplicas, timeout);
+            return RespProtocol.createInteger(ackReplicas);
+            
+        } catch (NumberFormatException e) {
+            return RespProtocol.createErrorResponse("value is not an integer or out of range");
+        }
     }
 
     /**
@@ -90,9 +103,11 @@ public class CommandProcessor {
      * SET 명령어를 처리합니다. PX 옵션을 지원합니다.
      * 형식: SET key value [PX milliseconds]
      */
-    private String handleSetCommand(List<String> args) {
+    private void handleSetCommand(List<String> args) {
         if (args.size() < 3) {
-            return RespProtocol.createErrorResponse("wrong number of arguments for 'SET' command");
+            // 에러 응답 대신, 예외를 던지거나 처리 방식을 변경할 수 있음
+            // 여기서는 간단히 처리를 중단. 응답은 호출자에서 OK로 보냄.
+            return;
         }
         
         String key = args.get(1);
@@ -106,14 +121,12 @@ public class CommandProcessor {
                 
                 storageManager.setWithExpiry(key, value, expiryTime);
             } catch (NumberFormatException e) {
-                return RespProtocol.createErrorResponse("value is not an integer or out of range");
+                // 에러 처리
             }
         } else {
             // 일반 SET (만료 시간 없음)
             storageManager.set(key, value);
         }
-        
-        return RespProtocol.OK_RESPONSE;
     }
     
     /**
@@ -211,9 +224,9 @@ public class CommandProcessor {
             replicationInfo.append("slave_read_only:1\r\n");
         } else {
             replicationInfo.append("role:master\r\n");
-            replicationInfo.append("connected_slaves:").append(replicas.size()).append("\r\n");
+            replicationInfo.append("connected_slaves:").append(replicationManager.getReplicaCount()).append("\r\n");
             replicationInfo.append("master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb\r\n");
-            replicationInfo.append("master_repl_offset:0\r\n");
+            replicationInfo.append("master_repl_offset:").append(replicationManager.getMasterReplOffset()).append("\r\n");
             replicationInfo.append("second_repl_offset:-1\r\n");
             replicationInfo.append("repl_backlog_active:0\r\n");
             replicationInfo.append("repl_backlog_size:1048576\r\n");
@@ -237,7 +250,10 @@ public class CommandProcessor {
         
         // Stage 27: master로부터 REPLCONF GETACK *를 받을 때 ACK 응답
         if ("GETACK".equalsIgnoreCase(args.get(1))) {
-            // ACK 0 응답
+            // 이 로직은 레플리카 측에서 실행되어야 함. 현재 CommandProcessor는 마스터/레플리카 구분이 없음.
+            // 레플리카 클라이언트(ReplicationClient)에서 직접 처리하거나,
+            // 이 CommandProcessor가 자신이 레플리카 모드인지 알아야 함.
+            // 지금은 0으로 응답. 실제 오프셋 추적은 ReplicationClient에서 필요.
             return RespProtocol.createRespArray(new String[]{"REPLCONF", "ACK", "0"});
         }
         

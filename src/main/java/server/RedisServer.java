@@ -5,6 +5,7 @@ import config.ServerConfig;
 import protocol.RespProtocol;
 import rdb.RdbLoader;
 import replication.ReplicationClient;
+import replication.ReplicationManager;
 import storage.StorageManager;
 import streams.StreamsManager;
 
@@ -31,13 +32,14 @@ public class RedisServer {
     private final CommandProcessor commandProcessor;
     private final RdbLoader rdbLoader;
     private final ReplicationClient replicationClient;
-    private final List<OutputStream> replicas = new CopyOnWriteArrayList<>();
+    private final ReplicationManager replicationManager;
     
     public RedisServer(ServerConfig config) {
         this.config = config;
         this.storageManager = new StorageManager();
         this.streamsManager = new StreamsManager();
-        this.commandProcessor = new CommandProcessor(config, storageManager, streamsManager, this.replicas);
+        this.replicationManager = new ReplicationManager(config);
+        this.commandProcessor = new CommandProcessor(config, storageManager, streamsManager, replicationManager);
         this.rdbLoader = new RdbLoader(config, storageManager);
         this.replicationClient = new ReplicationClient(config, commandProcessor);
     }
@@ -98,7 +100,7 @@ public class RedisServer {
             
             String line;
             while ((line = reader.readLine()) != null) {
-                System.out.println("Received: " + line);
+                System.out.println("Received from " + clientAddress + ": " + line);
                 
                 try {
                     // RESP 프로토콜 파싱
@@ -109,9 +111,16 @@ public class RedisServer {
                         
                         if (!commands.isEmpty()) {
                             String command = commands.get(0).toUpperCase();
+                            
+                            // 레플리카로부터의 ACK 처리
+                            if (command.equals("REPLCONF") && commands.size() >= 3 && "ACK".equalsIgnoreCase(commands.get(1))) {
+                                replicationManager.processAck(clientSocket, Long.parseLong(commands.get(2)));
+                                continue; // ACK는 응답 없음
+                            }
+                            
                             String response = commandProcessor.processCommand(command, commands);
                             sendResponse(outputStream, response);
-                            System.out.println("Sent: " + response.trim());
+                            System.out.println("Sent to " + clientAddress + ": " + response.trim());
                             
                             // PSYNC에 대한 특별 처리: RDB 파일 전송 및 레플리카 등록
                             if (command.equals("PSYNC") && response.startsWith("+FULLRESYNC")) {
@@ -121,17 +130,16 @@ public class RedisServer {
                                 outputStream.write(rdbFilePrefix.getBytes());
                                 outputStream.write(rdbFileBytes);
                                 outputStream.flush();
-                                System.out.println("Sent empty RDB file.");
+                                System.out.println("Sent empty RDB file to " + clientAddress);
                                 
                                 // 이 클라이언트를 레플리카로 등록
-                                replicas.add(outputStream);
-                                System.out.println("New replica registered. Total replicas: " + replicas.size());
+                                replicationManager.addReplica(clientSocket);
                             }
                             
                             // 쓰기 명령어를 레플리카에 전파
                             List<String> writeCommands = Arrays.asList("SET", "XADD", "INCR");
                             if (writeCommands.contains(command)) {
-                                propagateCommand(commands);
+                                replicationManager.propagateCommand(commands);
                             }
                         }
                     } else if (line.equals("PING")) {
@@ -171,25 +179,5 @@ public class RedisServer {
         outputStream.flush();
     }
     
-    /**
-     * 연결된 모든 레플리카에게 명령어를 전파합니다.
-     */
-    private void propagateCommand(List<String> commandParts) {
-        if (replicas.isEmpty()) {
-            return;
-        }
-        
-        String respCommand = RespProtocol.createRespArray(commandParts.toArray(new String[0]));
-        System.out.println("Propagating to " + replicas.size() + " replicas: " + respCommand.trim());
-        
-        for (OutputStream replicaStream : replicas) {
-            try {
-                replicaStream.write(respCommand.getBytes());
-                replicaStream.flush();
-            } catch (IOException e) {
-                System.err.println("Failed to propagate command to replica: " + e.getMessage());
-                // TODO: 연결이 끊긴 레플리카는 목록에서 제거하는 로직 추가
-            }
-        }
-    }
+    // propagateCommand 메서드는 ReplicationManager로 이동했으므로 삭제
 } 

@@ -208,78 +208,34 @@ public class ReplicationClient {
      */
     private void listenForMasterCommands(InputStream masterInputStream, OutputStream masterOutputStream) throws IOException {
         while (!Thread.currentThread().isInterrupted()) {
-            int commandByteCount = 0;
-
-            // Read Array Header
-            String arrayHeader = readLine(masterInputStream);
-            if (arrayHeader == null) {
+            // Read and parse the command from the master
+            List<Object> parsedResult = RespProtocol.parseResp(masterInputStream);
+            if (parsedResult == null) {
                 System.out.println("Master closed the connection.");
                 break;
             }
-            commandByteCount += arrayHeader.length(); // readLine includes \r\n
-            if (!arrayHeader.startsWith("*")) {
-                System.err.println("Warning: Expected RESP Array, but got: " + arrayHeader.replace("\r\n", "\\r\\n"));
-                continue;
-            }
             
-            int arrayLength = Integer.parseInt(arrayHeader.substring(1, arrayHeader.length() - 2)); // remove * and \r\n
-            List<String> commandParts = new ArrayList<>();
-
-            for (int i = 0; i < arrayLength; i++) {
-                // Read Bulk String Header
-                String bulkHeader = readLine(masterInputStream);
-                if (bulkHeader == null) {
-                    throw new IOException("Unexpected end of stream: bulk header is null.");
-                }
-                commandByteCount += bulkHeader.length();
-                if (!bulkHeader.startsWith("$")) {
-                    throw new IOException("Expected Bulk String header, but got: " + bulkHeader.replace("\r\n", "\\r\\n"));
-                }
-
-                int bulkLength = Integer.parseInt(bulkHeader.substring(1, bulkHeader.length() - 2)); // remove $ and \r\n
-                if (bulkLength == -1) {
-                    commandParts.add(null); // Null bulk string
-                    continue;
-                }
-
-                // Read Bulk String Content
-                byte[] bulkContentBytes = new byte[bulkLength];
-                int totalBytesRead = 0;
-                while (totalBytesRead < bulkLength) {
-                    int bytesRead = masterInputStream.read(bulkContentBytes, totalBytesRead, bulkLength - totalBytesRead);
-                    if (bytesRead == -1) {
-                        throw new IOException("Unexpected end of stream while reading bulk string content");
-                    }
-                    totalBytesRead += bytesRead;
-                }
-                commandByteCount += totalBytesRead;
-
-                // Consume trailing \r\n
-                if (masterInputStream.read() != '\r' || masterInputStream.read() != '\n') {
-                    throw new IOException("Expected CRLF after bulk string content");
-                }
-                commandByteCount += 2;
-
-                commandParts.add(new String(bulkContentBytes, StandardCharsets.UTF_8));
-            }
-
+            List<String> commandParts = (List<String>) parsedResult.get(0);
+            int commandByteCount = (int) parsedResult.get(1);
+            
             if (commandParts.isEmpty()) {
                 continue;
             }
-
-            String commandName = commandParts.get(0).toUpperCase();
-
-            if (commandName.equals("REPLCONF") && commandParts.size() >= 2 && commandParts.get(1).equalsIgnoreCase("GETACK")) {
-                String offsetStr = String.valueOf(processedBytesOffset);
-                String ackResponse = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$" + offsetStr.length() + "\r\n" + offsetStr + "\r\n";
-                masterOutputStream.write(ackResponse.getBytes(StandardCharsets.UTF_8));
+            
+            String command = commandParts.get(0).toUpperCase();
+            
+            if (command.equals("REPLCONF") && commandParts.size() >= 2 && "GETACK".equalsIgnoreCase(commandParts.get(1))) {
+                // Stage 28: Respond to GETACK with the current offset
+                String ackResponse = RespProtocol.createRespArray(new String[]{"REPLCONF", "ACK", String.valueOf(processedBytesOffset)});
+                masterOutputStream.write(ackResponse.getBytes());
                 masterOutputStream.flush();
-                System.out.println("Responded to GETACK with offset: " + processedBytesOffset);
+                System.out.println("Responded to GETACK with offset " + processedBytesOffset);
             } else {
-                commandProcessor.processCommand(commandName, commandParts);
-                System.out.println("Processed propagated command from master: " + commandParts);
+                // Stage 26: Process other commands without sending a response
+                commandProcessor.processCommand(command, commandParts);
             }
-
+            
+            // Update the offset *after* processing the command
             processedBytesOffset += commandByteCount;
         }
     }
