@@ -308,7 +308,8 @@ public class CommandProcessor {
      * Redis Streams XADD 명령어를 처리합니다.
      */
     private String handleXAddCommand(List<String> args) {
-        if (args.size() < 4) {
+        // XADD <key> <id> <field> <value> [...field value...]
+        if (args.size() < 5 || (args.size() - 3) % 2 != 0) {
             return RespProtocol.createErrorResponse("wrong number of arguments for 'XADD' command");
         }
         
