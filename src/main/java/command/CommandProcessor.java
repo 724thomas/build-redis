@@ -64,8 +64,8 @@ public class CommandProcessor {
     }
 
     private String handleWaitCommand(List<String> args) {
-        // Stage 29: For now, with no replicas, WAIT should return 0 immediately.
-        return RespProtocol.createInteger(0);
+        // Stage 30: Return the number of connected replicas.
+        return RespProtocol.createInteger(replicas.size());
     }
 
     /**
