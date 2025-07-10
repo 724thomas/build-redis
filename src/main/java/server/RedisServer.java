@@ -16,6 +16,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Redis 서버의 메인 클래스
@@ -29,6 +30,7 @@ public class RedisServer {
     private final CommandProcessor commandProcessor;
     private final RdbLoader rdbLoader;
     private final ReplicationClient replicationClient;
+    private final List<OutputStream> replicas = new CopyOnWriteArrayList<>();
     
     public RedisServer(ServerConfig config) {
         this.config = config;
@@ -110,7 +112,7 @@ public class RedisServer {
                             sendResponse(outputStream, response);
                             System.out.println("Sent: " + response.trim());
                             
-                            // PSYNC에 대한 특별 처리: RDB 파일 전송
+                            // PSYNC에 대한 특별 처리: RDB 파일 전송 및 레플리카 등록
                             if (command.equals("PSYNC") && response.startsWith("+FULLRESYNC")) {
                                 byte[] rdbFileBytes = RespProtocol.EMPTY_RDB_BYTES;
                                 String rdbFilePrefix = "$" + rdbFileBytes.length + "\r\n";
@@ -119,6 +121,15 @@ public class RedisServer {
                                 outputStream.write(rdbFileBytes);
                                 outputStream.flush();
                                 System.out.println("Sent empty RDB file.");
+                                
+                                // 이 클라이언트를 레플리카로 등록
+                                replicas.add(outputStream);
+                                System.out.println("New replica registered. Total replicas: " + replicas.size());
+                            }
+                            
+                            // 쓰기 명령어를 레플리카에 전파
+                            if (command.equals("SET")) {
+                                propagateCommand(commands);
                             }
                         }
                     } else if (line.equals("PING")) {
@@ -156,5 +167,27 @@ public class RedisServer {
     private void sendResponse(OutputStream outputStream, String response) throws IOException {
         outputStream.write(response.getBytes());
         outputStream.flush();
+    }
+    
+    /**
+     * 연결된 모든 레플리카에게 명령어를 전파합니다.
+     */
+    private void propagateCommand(List<String> commandParts) {
+        if (replicas.isEmpty()) {
+            return;
+        }
+        
+        String respCommand = RespProtocol.createRespArray(commandParts.toArray(new String[0]));
+        System.out.println("Propagating to " + replicas.size() + " replicas: " + respCommand.trim());
+        
+        for (OutputStream replicaStream : replicas) {
+            try {
+                replicaStream.write(respCommand.getBytes());
+                replicaStream.flush();
+            } catch (IOException e) {
+                System.err.println("Failed to propagate command to replica: " + e.getMessage());
+                // TODO: 연결이 끊긴 레플리카는 목록에서 제거하는 로직 추가
+            }
+        }
     }
 } 
