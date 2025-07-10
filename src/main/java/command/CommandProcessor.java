@@ -5,6 +5,7 @@ import protocol.RespProtocol;
 import storage.StorageManager;
 import streams.StreamsManager;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -246,8 +247,14 @@ public class CommandProcessor {
         if ("?".equals(replId) && "-1".equals(offset)) {
             // FULLRESYNC <REPL_ID> 0 응답
             String masterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb";
-            String response = "+FULLRESYNC " + masterReplId + " 0\r\n";
-            return response;
+            String fullResyncResponse = "+FULLRESYNC " + masterReplId + " 0\r\n";
+            
+            // 빈 RDB 파일 전송
+            byte[] rdbFileBytes = RespProtocol.EMPTY_RDB_BYTES;
+            String rdbFilePrefix = "$" + rdbFileBytes.length + "\r\n";
+            String rdbFileContent = new String(rdbFileBytes, StandardCharsets.ISO_8859_1);
+            
+            return fullResyncResponse + rdbFilePrefix + rdbFileContent;
         }
         
         return RespProtocol.createErrorResponse("unsupported PSYNC parameters");
