@@ -1,5 +1,7 @@
 package protocol;
 
+import streams.StreamsManager;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -8,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.io.ByteArrayOutputStream;
 import org.apache.commons.io.input.TeeInputStream;
 
@@ -89,9 +92,13 @@ public class RespProtocol {
      */
     public static String createBulkString(String value) {
         if (value == null) {
-            return "$-1\r\n"; // null bulk string
+            return "$-1\r\n"; // Null Bulk String
         }
         return "$" + value.length() + "\r\n" + value + "\r\n";
+    }
+
+    public static String createNullBulkString() {
+        return "$-1\r\n"; // Null Bulk String
     }
     
     /**
@@ -106,6 +113,26 @@ public class RespProtocol {
         }
         
         return sb.toString();
+    }
+    
+    public static String createArrayOfArrays(List<Object> arrays) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("*").append(arrays.size()).append("\r\n");
+        for (Object item : arrays) {
+            sb.append(formatArrayItem(item));
+        }
+        return sb.toString();
+    }
+    
+    private static String formatArrayItem(Object item) {
+        if (item instanceof List) {
+            return createArrayOfArrays((List<Object>) item);
+        } else if (item instanceof String) {
+            return createBulkString((String) item);
+        } else {
+            // Handle other types if necessary, or throw an error
+            return createBulkString(item.toString());
+        }
     }
     
     /**
@@ -158,6 +185,39 @@ public class RespProtocol {
             sb.append(createBulkString(value));
         }
         
+        return sb.toString();
+    }
+
+    /**
+     * XREAD 명령어의 응답을 RESP 형식으로 포맷팅합니다.
+     */
+    public static String formatXReadResponse(Map<String, List<StreamsManager.StreamEntry>> result) {
+        if (result == null || result.isEmpty()) {
+            return createNullArray(); // As per XREAD spec, it should be null when no new entries or timeout
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("*").append(result.size()).append("\r\n");
+
+        for (Map.Entry<String, List<StreamsManager.StreamEntry>> streamResult : result.entrySet()) {
+            String streamKey = streamResult.getKey();
+            List<StreamsManager.StreamEntry> entries = streamResult.getValue();
+
+            sb.append("*2\r\n"); // Array for [streamKey, entries]
+            sb.append(createBulkString(streamKey));
+
+            sb.append("*").append(entries.size()).append("\r\n"); // Array for entries
+            for (StreamsManager.StreamEntry entry : entries) {
+                sb.append("*2\r\n"); // Array for [entryId, fieldValues]
+                sb.append(createBulkString(entry.getId().toString()));
+
+                List<String> fieldValues = entry.getFieldValues();
+                sb.append("*").append(fieldValues.size()).append("\r\n"); // Array for fieldValues
+                for (String fieldValue : fieldValues) {
+                    sb.append(createBulkString(fieldValue));
+                }
+            }
+        }
         return sb.toString();
     }
     

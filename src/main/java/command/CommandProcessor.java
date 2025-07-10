@@ -336,14 +336,31 @@ public class CommandProcessor {
      * Redis Streams XREAD 명령어를 처리합니다.
      */
     private String handleXReadCommand(List<String> args) {
-        if (args.size() < 4 || !"STREAMS".equalsIgnoreCase(args.get(1))) {
-            return RespProtocol.createErrorResponse("wrong arguments for 'XREAD' command");
+        if (args.size() < 4 || !"streams".equalsIgnoreCase(args.get(1))) {
+            return RespProtocol.createErrorResponse("wrong number of arguments for 'XREAD' command or missing 'streams' keyword");
+        }
+
+        int streamKeywordIndex = -1;
+        for (int i = 0; i < args.size(); i++) {
+            if ("streams".equalsIgnoreCase(args.get(i))) {
+                streamKeywordIndex = i;
+                break;
+            }
+        }
+
+        if (streamKeywordIndex == -1) {
+            return RespProtocol.createErrorResponse("Syntax error in XREAD command");
         }
         
-        // XREAD streams streamKey lastId
-        String streamKey = args.get(2);
-        String lastId = args.get(3);
+        List<String> streamKeysAndIds = args.subList(streamKeywordIndex + 1, args.size());
+        if (streamKeysAndIds.size() % 2 != 0) {
+            return RespProtocol.createErrorResponse("Unbalanced list of streams and IDs");
+        }
         
-        return streamsManager.readStream(streamKey, lastId);
+        int numStreams = streamKeysAndIds.size() / 2;
+        List<String> streamKeys = streamKeysAndIds.subList(0, numStreams);
+        List<String> lastIds = streamKeysAndIds.subList(numStreams, streamKeysAndIds.size());
+
+        return streamsManager.readStreams(streamKeys, lastIds);
     }
 } 
