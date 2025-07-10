@@ -19,6 +19,11 @@ public class ServerConfig {
         System.out.println("  RDB 파일명: " + this.rdbFilename);
     }
     
+    public ServerConfig(String[] args) {
+        this(); // 기본 생성자 호출
+        parseCommandLineArgs(args);
+    }
+
     // Getter 메서드들
     public int getPort() {
         return port;

@@ -1,13 +1,15 @@
-package protocol;
+package util;
+
+import model.StreamEntry;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.PushbackInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.io.ByteArrayOutputStream;
 import org.apache.commons.io.input.TeeInputStream;
 
@@ -161,6 +163,39 @@ public class RespProtocol {
         return sb.toString();
     }
     
+    /**
+     * XREAD 명령어의 응답을 RESP 형식으로 포맷팅합니다.
+     */
+    public static String formatXReadResponse(Map<String, List<StreamEntry>> result) {
+        if (result == null || result.isEmpty()) {
+            return createNullArray(); // As per XREAD spec, it should be null when no new entries or timeout
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("*").append(result.size()).append("\r\n");
+
+        for (Map.Entry<String, List<StreamEntry>> streamResult : result.entrySet()) {
+            String streamKey = streamResult.getKey();
+            List<StreamEntry> entries = streamResult.getValue();
+
+            sb.append("*2\r\n"); // Array for [streamKey, entries]
+            sb.append(createBulkString(streamKey));
+
+            sb.append("*").append(entries.size()).append("\r\n"); // Array for entries
+            for (StreamEntry entry : entries) {
+                sb.append("*2\r\n"); // Array for [entryId, fieldValues]
+                sb.append(createBulkString(entry.getId().toString()));
+
+                List<String> fieldValues = entry.getFieldValues();
+                sb.append("*").append(fieldValues.size()).append("\r\n"); // Array for fieldValues
+                for (String fieldValue : fieldValues) {
+                    sb.append(createBulkString(fieldValue));
+                }
+            }
+        }
+        return sb.toString();
+    }
+
     /**
      * 입력 스트림에서 한 줄을 읽습니다 (CRLF 포함).
      */
