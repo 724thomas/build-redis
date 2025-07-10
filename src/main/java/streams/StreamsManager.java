@@ -76,6 +76,20 @@ public class StreamsManager {
     }
     
     /**
+     * 스트림에서 특정 ID 이후의 엔트리들을 가져옵니다.
+     */
+    public List<StreamEntry> getEntriesAfter(String streamKey, StreamId startId) {
+        List<StreamEntry> streamEntries = streams.get(streamKey);
+        if (streamEntries == null || streamEntries.isEmpty()) {
+            return new ArrayList<>();
+        }
+        
+        return streamEntries.stream()
+            .filter(entry -> entry.getId().compareTo(startId) > 0)
+            .collect(Collectors.toList());
+    }
+
+    /**
      * 스트림에 엔트리를 추가합니다.
      */
     public String addEntry(String streamKey, String entryIdStr, List<String> fieldValues) {
@@ -170,6 +184,57 @@ public class StreamsManager {
         return sb.toString();
     }
     
+    /**
+     * 스트림에서 특정 ID 이후의 엔트리들을 읽어옵니다.
+     */
+    public String readStreams(List<String> streamKeys, List<String> lastIdStrs) {
+        List<Object> allStreamResults = new ArrayList<>();
+        
+        for (int i = 0; i < streamKeys.size(); i++) {
+            String streamKey = streamKeys.get(i);
+            String lastIdStr = lastIdStrs.get(i);
+            
+            List<StreamEntry> streamEntries = streams.get(streamKey);
+            if (streamEntries == null || streamEntries.isEmpty()) {
+                continue;
+            }
+            
+            StreamId lastStreamId;
+            if ("$".equals(lastIdStr)) {
+                if (streamEntries.isEmpty()) {
+                    continue;
+                }
+                lastStreamId = streamEntries.get(streamEntries.size() - 1).getId();
+            } else {
+                lastStreamId = StreamId.fromString(lastIdStr);
+            }
+            
+            List<StreamEntry> result = streamEntries.stream()
+                .filter(entry -> entry.getId().compareTo(lastStreamId) > 0)
+                .collect(Collectors.toList());
+            
+            if (!result.isEmpty()) {
+                List<Object> singleStreamResult = new ArrayList<>();
+                singleStreamResult.add(streamKey);
+                singleStreamResult.add(result.stream()
+                    .map(entry -> {
+                        List<Object> entryList = new ArrayList<>();
+                        entryList.add(entry.getId().toString());
+                        entryList.add(entry.getFieldValues());
+                        return entryList;
+                    })
+                    .collect(Collectors.toList()));
+                allStreamResults.add(singleStreamResult);
+            }
+        }
+        
+        if (allStreamResults.isEmpty()) {
+            return RespProtocol.createNullBulkString();
+        }
+        
+        return RespProtocol.createArrayOfArrays(allStreamResults);
+    }
+
     public boolean exists(String key) {
         return streams.containsKey(key);
     }
