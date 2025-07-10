@@ -5,6 +5,7 @@ import protocol.RespProtocol;
 import storage.StorageManager;
 import streams.StreamsManager;
 
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -17,11 +18,13 @@ public class CommandProcessor {
     private final ServerConfig config;
     private final StorageManager storageManager;
     private final StreamsManager streamsManager;
+    private final List<OutputStream> replicas;
     
-    public CommandProcessor(ServerConfig config, StorageManager storageManager, StreamsManager streamsManager) {
+    public CommandProcessor(ServerConfig config, StorageManager storageManager, StreamsManager streamsManager, List<OutputStream> replicas) {
         this.config = config;
         this.storageManager = storageManager;
         this.streamsManager = streamsManager;
+        this.replicas = replicas;
     }
     
     /**
@@ -201,7 +204,7 @@ public class CommandProcessor {
             replicationInfo.append("slave_read_only:1\r\n");
         } else {
             replicationInfo.append("role:master\r\n");
-            replicationInfo.append("connected_slaves:0\r\n");
+            replicationInfo.append("connected_slaves:").append(replicas.size()).append("\r\n");
             replicationInfo.append("master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb\r\n");
             replicationInfo.append("master_repl_offset:0\r\n");
             replicationInfo.append("second_repl_offset:-1\r\n");

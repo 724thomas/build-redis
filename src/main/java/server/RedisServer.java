@@ -15,6 +15,7 @@ import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -36,7 +37,7 @@ public class RedisServer {
         this.config = config;
         this.storageManager = new StorageManager();
         this.streamsManager = new StreamsManager();
-        this.commandProcessor = new CommandProcessor(config, storageManager, streamsManager);
+        this.commandProcessor = new CommandProcessor(config, storageManager, streamsManager, this.replicas);
         this.rdbLoader = new RdbLoader(config, storageManager);
         this.replicationClient = new ReplicationClient(config);
     }
@@ -128,7 +129,8 @@ public class RedisServer {
                             }
                             
                             // 쓰기 명령어를 레플리카에 전파
-                            if (command.equals("SET")) {
+                            List<String> writeCommands = Arrays.asList("SET", "XADD", "INCR");
+                            if (writeCommands.contains(command)) {
                                 propagateCommand(commands);
                             }
                         }
