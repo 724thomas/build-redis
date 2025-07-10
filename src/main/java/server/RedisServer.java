@@ -39,7 +39,7 @@ public class RedisServer {
         this.streamsManager = new StreamsManager();
         this.commandProcessor = new CommandProcessor(config, storageManager, streamsManager, this.replicas);
         this.rdbLoader = new RdbLoader(config, storageManager);
-        this.replicationClient = new ReplicationClient(config);
+        this.replicationClient = new ReplicationClient(config, commandProcessor);
     }
     
     /**
