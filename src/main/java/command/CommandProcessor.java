@@ -42,6 +42,8 @@ public class CommandProcessor {
                 return RespProtocol.OK_RESPONSE;
             case "GET":
                 return handleGetCommand(args);
+            case "TYPE":
+                return handleTypeCommand(args);
             case "CONFIG":
                 return handleConfigCommand(args);
             case "KEYS":
@@ -79,6 +81,23 @@ public class CommandProcessor {
         } catch (NumberFormatException e) {
             return RespProtocol.createErrorResponse("value is not an integer or out of range");
         }
+    }
+    
+    private String handleTypeCommand(List<String> args) {
+        if (args.size() < 2) {
+            return RespProtocol.createErrorResponse("wrong number of arguments for 'type' command");
+        }
+        String key = args.get(1);
+
+        if (streamsManager.exists(key)) {
+            return RespProtocol.createSimpleString("stream");
+        }
+
+        if (storageManager.exists(key)) {
+            return RespProtocol.createSimpleString("string");
+        }
+        
+        return RespProtocol.createSimpleString("none");
     }
 
     /**

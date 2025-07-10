@@ -88,6 +88,10 @@ public class StreamsManager {
         
         return sb.toString();
     }
+
+    public boolean exists(String key) {
+        return streams.containsKey(key);
+    }
     
     /**
      * 엔트리 ID를 처리합니다 (자동 생성 포함)
