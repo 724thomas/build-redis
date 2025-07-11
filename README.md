@@ -1,266 +1,114 @@
-# Redis Server Implementation in Java
 
-Java로 구현한 완전한 Redis 서버입니다. TCP 연결, 기본 Redis 명령어, RDB 파일 처리, 복제(Replication), Redis Streams, 트랜잭션 등 Redis의 핵심 기능을 모두 지원합니다.
+# Redis-like Server in Java
 
-## 🎯 프로젝트 개요
+이 프로젝트는 CodeCrafters의 "Build Your Own Redis" 챌린지를 기반으로 Java로 구현된 Redis 서버입니다. 순수 Java 네트워킹과 동시성 모델을 사용하여 Redis의 핵심 기능들을 처음부터 구현하는 데 중점을 두었습니다. RESP(Redis Serialization Protocol) 파싱, 데이터 저장, 만료 처리, RDB 파일 파싱, 리더-팔로워(Leader-Follower) 복제, Redis Streams, 트랜잭션 등 다양한 기능을 지원합니다.
 
-이 프로젝트는 Redis의 주요 기능들을 단계별로 구현하여 분산 시스템과 데이터베이스의 내부 동작을 깊이 이해하는 것을 목표로 합니다. 실제 Redis 서버의 동작 방식을 모방하여 학습 목적으로 제작되었습니다.
+## ✨ 주요 기능
 
-## 🚀 지원 기능
+이 Redis 서버는 다음과 같은 광범위한 기능을 구현하고 있습니다.
 
-### 🔧 기본 서버 기능
-- **TCP 서버**: 기본 포트 6379, 사용자 정의 포트 지원
-- **동시 클라이언트 처리**: 멀티스레드 기반 동시 연결 처리
-- **RESP 프로토콜**: Redis Serialization Protocol 완전 지원
-- **설정 관리**: 런타임 설정 조회 및 관리
+### 🗄️ **기본 명령어 (General Commands)**
+- `PING`: 서버의 가용성을 확인합니다.
+- `ECHO`: 주어진 메시지를 그대로 반환합니다.
+- `CONFIG GET`: 서버의 설정 파라미터를 가져옵니다.
 
-### 📋 Redis 명령어 지원
+### 🔑 **키-값 저장소 (Key-Value Store)**
+- `SET`: 키에 값을 저장합니다. (`PX` 옵션을 사용한 만료 시간 설정 지원)
+- `GET`: 키에 해당하는 값을 가져옵니다.
+- `INCR`: 키의 숫자 값을 1 증가시킵니다. (키 부재, 타입 오류 처리 포함)
+- `KEYS`: 패턴(`*`만 지원)과 일치하는 모든 키를 반환합니다.
+- `TYPE`: 키에 저장된 값의 데이터 타입을 반환합니다. (`string`, `stream`, `none`)
 
-#### 기본 명령어
-- **PING**: 서버 상태 확인
-- **ECHO**: 문자열 에코
-- **INFO**: 서버 정보 조회 (복제 정보 포함)
-- **CONFIG GET**: 설정 값 조회
+### 🌊 **스트림 (Streams)**
+- `XADD`: 스트림에 새로운 엔트리를 추가합니다. (ID 유효성 검사 및 자동 생성 지원: `*`, `<ms>-*`)
+- `XRANGE`: 스트림의 특정 범위에 있는 엔트리를 조회합니다. (특수 ID `-`, `+` 지원)
+- `XREAD`: 하나 또는 여러 스트림에서 새로운 엔트리를 읽습니다. (`BLOCK` 옵션을 통한 블로킹 읽기, 특수 ID `$` 지원)
 
-#### 데이터 조작 명령어
-- **SET**: 키-값 저장 (만료 시간 PX 옵션 지원)
-- **GET**: 키 값 조회 (만료된 키 자동 삭제)
-- **INCR**: 숫자 값 증가 (존재하지 않는 키, 비숫자 값 처리)
-- **KEYS**: 패턴 매칭 키 목록 조회
-- **TYPE**: 키의 데이터 타입 확인
+### 🔄 **복제 (Replication)**
+- **리더-팔로워 구조**: 서버를 리더(Master) 또는 팔로워(Replica) 모드로 실행할 수 있습니다.
+- **핸드셰이크**: 팔로워가 리더에 연결 시 `PING`, `REPLCONF`, `PSYNC`를 통한 핸드셰이크 과정을 수행합니다.
+- **데이터 동기화**: `PSYNC` 후 빈 RDB 파일을 전송하여 초기 상태를 동기화합니다.
+- **명령어 전파**: 리더에서 실행된 쓰기 명령어가 모든 팔로워에게 실시간으로 전파됩니다.
+- `INFO replication`: 서버의 복제 관련 정보(역할, 복제 ID, 오프셋)를 반환합니다.
+- `WAIT`: 지정된 수의 팔로워가 특정 오프셋까지 동기화될 때까지 대기하여 쓰기 작업의 일관성을 보장합니다.
 
-#### Redis Streams
-- **XADD**: 스트림 엔트리 추가
-  - 명시적 ID 지정 (`1234567890123-0`)
-  - 자동 ID 생성 (`*`)
-  - 부분 자동 생성 (`timestamp-*`)
-  - ID 검증 및 순서 보장
-- **XRANGE**: 범위 기반 엔트리 조회
-  - 시작/끝 ID 지정
-  - 특수 값 지원 (`-`, `+`)
-- **XREAD**: 스트림 데이터 읽기
-  - 단일/다중 스트림 지원
-  - 블로킹 읽기 (BLOCK 옵션)
-  - 타임아웃 지원 (무한 대기 포함)
-  - 새 메시지만 읽기 (`$` 지원)
+### 🔀 **트랜잭션 (Transactions)**
+- `MULTI`: 트랜잭션 블록을 시작합니다.
+- `EXEC`: 큐에 쌓인 모든 명령어를 원자적으로 실행하고 결과를 반환합니다.
+- `DISCARD`: 트랜잭션을 중단하고 큐를 비웁니다.
+- **명령어 큐잉**: `MULTI`와 `EXEC` 사이의 모든 명령어는 큐에 저장되며, `QUEUED` 응답을 받습니다.
 
-#### 트랜잭션
-- **MULTI**: 트랜잭션 시작
-- **EXEC**: 트랜잭션 실행
-- **DISCARD**: 트랜잭션 취소
-- **명령어 큐잉**: 트랜잭션 내 명령어 대기열 관리
-- **오류 처리**: 트랜잭션 내 개별 명령어 실패 처리
-- **다중 트랜잭션**: 여러 클라이언트의 동시 트랜잭션 지원
+### 💾 **영속성 (Persistence)**
+- **RDB 파일 로딩**: 서버 시작 시 `--dir`와 `--dbfilename` 인자로 지정된 RDB 파일을 읽어 메모리에 로드합니다. (키-값, 만료 시간 포함)
 
-### 🔄 복제 (Replication)
-- **마스터-레플리카 구조**: 완전한 리더-팔로워 복제
-- **핸드셰이크 프로토콜**: 
-  - PING → REPLCONF (listening-port, capa) → PSYNC
-- **전체 동기화**: RDB 파일 전송을 통한 초기 동기화
-- **명령어 전파**: 쓰기 명령어 실시간 전파
-- **ACK 시스템**: 레플리카 동기화 상태 추적
-- **WAIT 명령어**: 지정된 수의 레플리카 동기화 대기
+---
 
-### 💾 영속성 (Persistence)
-- **RDB 파일 처리**:
-  - 서버 시작 시 데이터 로딩
-  - 다양한 인코딩 방식 지원 (문자열, 정수)
-  - 만료 시간 처리 (초/밀리초 단위)
-  - 메타데이터 파싱
-  - 빈 RDB 파일 전송 (복제용)
+## 🚀 빌드 및 실행 방법
 
-### ⏱️ 만료 처리
-- **키 만료**: TTL 기반 자동 키 삭제
-- **지연 만료**: 접근 시점 만료 확인
-- **만료 시간 형식**: 밀리초 단위 타임스탬프
+### **전제 조건**
+- Java 17 이상
+- Apache Maven
 
-## 🛠️ 사용법
+### **빌드**
 
-### 서버 실행
+프로젝트 루트 디렉토리에서 다음 명령어를 실행하여 실행 가능한 JAR 파일을 빌드합니다.
 
 ```bash
-# 기본 설정으로 실행 (포트 6379)
-./your_program.sh
-
-# 마스터 서버 (사용자 정의 포트)
-./your_program.sh --port 6380
-
-# 레플리카 서버
-./your_program.sh --port 6381 --replicaof "localhost 6380"
-
-# RDB 파일 설정
-./your_program.sh --dir /data --dbfilename redis.rdb
+mvn clean package
 ```
 
-### 클라이언트 연결
+빌드가 성공하면 `target/` 디렉토리에 `codecrafters-redis-jar-with-dependencies.jar` 파일이 생성됩니다.
 
+### **실행**
+
+#### **리더(Master) 모드**
+
+기본 포트(6379)로 서버를 시작합니다.
 ```bash
-# 기본 연결
-redis-cli
-
-# 특정 포트 연결
-redis-cli -p 6380
+java -jar target/codecrafters-redis-jar-with-dependencies.jar
 ```
 
-### 명령어 예제
-
-#### 기본 명령어
+다른 포트를 사용하려면 `--port` 인자를 사용하세요.
 ```bash
-redis-cli PING                    # PONG
-redis-cli ECHO "Hello World"      # "Hello World"
-redis-cli INFO replication        # 복제 정보
+java -jar target/codecrafters-redis-jar-with-dependencies.jar --port 6380
 ```
 
-#### 데이터 조작
+#### **팔로워(Replica) 모드**
+
+리더 서버에 연결하는 팔로워로 서버를 시작합니다.
 ```bash
-# 키-값 저장/조회
-redis-cli SET mykey "Hello"
-redis-cli GET mykey
-redis-cli SET tempkey "value" PX 5000  # 5초 후 만료
-redis-cli INCR counter             # 숫자 증가
-
-# 키 관리
-redis-cli KEYS "*"                 # 모든 키 조회
-redis-cli TYPE mykey               # 키 타입 확인
+# 리더가 localhost:6379에서 실행 중이라고 가정
+java -jar target/codecrafters-redis-jar-with-dependencies.jar --port 6381 --replicaof localhost 6379
 ```
 
-#### Redis Streams
+#### **RDB 파일 로딩**
+
+서버 시작 시 RDB 파일을 로드하려면 `--dir`와 `--dbfilename` 인자를 사용하세요.
 ```bash
-# 스트림 엔트리 추가
-redis-cli XADD sensor:temp "*" temperature 25.6 humidity 60
-redis-cli XADD sensor:temp "1234567890123-0" temp 26.1
-
-# 스트림 조회
-redis-cli XRANGE sensor:temp - +           # 모든 엔트리
-redis-cli XRANGE sensor:temp 1234567890123 +  # 특정 시점 이후
-
-# 스트림 읽기
-redis-cli XREAD streams sensor:temp 0-0    # 모든 엔트리 읽기
-redis-cli XREAD BLOCK 1000 streams sensor:temp $ # 새 메시지 대기
+java -jar target/codecrafters-redis-jar-with-dependencies.jar --dir /path/to/rdb/dir --dbfilename dump.rdb
 ```
 
-#### 트랜잭션
-```bash
-redis-cli MULTI                   # 트랜잭션 시작
-redis-cli SET account1 100        # QUEUED
-redis-cli SET account2 200        # QUEUED
-redis-cli INCR account1           # QUEUED
-redis-cli EXEC                    # 트랜잭션 실행
-# 1) OK
-# 2) OK  
-# 3) (integer) 101
-```
+---
 
-#### 복제
-```bash
-# 마스터에서
-redis-cli SET shared_data "Hello from master"
+## 📋 구현된 명령어 목록
 
-# 레플리카에서 확인
-redis-cli GET shared_data          # "Hello from master"
-
-# 동기화 대기
-redis-cli WAIT 2 5000             # 2개 레플리카가 5초 내 동기화 대기
-```
-
-## 📁 프로젝트 구조
-
-```
-codecrafters-redis-java/
-├── src/main/java/
-│   └── Main.java                 # 메인 서버 구현
-├── pom.xml                       # Maven 설정
-├── your_program.sh              # 실행 스크립트
-├── codecrafters.yml             # CodeCrafters 설정
-└── README.md                    # 프로젝트 문서
-```
-
-## 🔧 기술 스택
-
-- **Java 8+**: 서버 구현 언어
-- **Maven**: 빌드 및 의존성 관리
-- **TCP Sockets**: 네트워크 통신
-- **NIO**: 논블로킹 I/O (블로킹 명령어용)
-- **Concurrent Collections**: 스레드 안전한 데이터 저장
-- **RESP Protocol**: Redis 직렬화 프로토콜
-
-## 📋 지원 데이터 타입
-
-### ✅ 구현된 타입
-- **String**: 문자열 및 숫자 값
-- **Stream**: 로그 형태의 데이터 스트림
-
-### 🔄 각 타입별 명령어
-- **String**: SET, GET, INCR, TYPE
-- **Stream**: XADD, XRANGE, XREAD, TYPE
-
-## 🌐 네트워크 & 프로토콜
-
-### RESP (Redis Serialization Protocol)
-- **Simple Strings**: `+OK\r\n`
-- **Errors**: `-ERR message\r\n`
-- **Integers**: `:123\r\n`
-- **Bulk Strings**: `$5\r\nhello\r\n`
-- **Arrays**: `*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n`
-- **Null**: `$-1\r\n`
-
-### 복제 프로토콜
-- **핸드셰이크**: PING → REPLCONF → PSYNC
-- **전체 동기화**: FULLRESYNC + RDB 전송
-- **명령어 전파**: 실시간 명령어 스트리밍
-- **ACK**: REPLCONF GETACK으로 동기화 확인
-
-## 🏗️ 빌드 및 실행
-
-```bash
-# 프로젝트 빌드
-mvn compile
-
-# 테스트 실행
-mvn test
-
-# 서버 시작
-./your_program.sh
-
-# 개발 모드 (디버그 정보 포함)
-./your_program.sh --debug
-```
-
-## 🧪 테스트 및 검증
-
-### 단일 서버 테스트
-```bash
-# 기본 기능 테스트
-redis-cli PING
-redis-cli SET test "value"
-redis-cli GET test
-
-# 스트림 테스트
-redis-cli XADD mystream "*" field1 value1
-redis-cli XREAD streams mystream 0-0
-```
-
-### 복제 테스트
-```bash
-# 터미널 1: 마스터 시작
-./your_program.sh --port 6379
-
-# 터미널 2: 레플리카 시작  
-./your_program.sh --port 6380 --replicaof "localhost 6379"
-
-# 터미널 3: 복제 확인
-redis-cli -p 6379 SET replicated_key "master_value"
-redis-cli -p 6380 GET replicated_key  # "master_value"
-```
-
-## 🎓 학습 목표
-
-이 프로젝트를 통해 다음을 학습할 수 있습니다:
-
-1. **네트워크 프로그래밍**: TCP 소켓, 프로토콜 설계
-2. **동시성**: 멀티스레딩, 스레드 안전성
-3. **데이터 구조**: 해시맵, 리스트, 스트림
-4. **직렬화**: 바이너리 프로토콜, 인코딩/디코딩
-5. **분산 시스템**: 복제, 일관성, 동기화
-6. **트랜잭션**: ACID 속성, 롤백 처리
-7. **영속성**: 파일 I/O, 데이터 복구
+| Category      | Command        | Description                                       |
+|---------------|----------------|---------------------------------------------------|
+| **Connection**| `PING`         | 서버의 가용성을 확인합니다.                       |
+|               | `ECHO`         | 주어진 메시지를 반환합니다.                       |
+| **Server**    | `CONFIG`       | 서버 설정을 조회합니다.                           |
+|               | `INFO`         | 서버 정보를 (주로 복제 관련) 반환합니다.          |
+| **Keys**      | `GET`          | 키의 값을 가져옵니다.                             |
+|               | `SET`          | 키에 값을 저장합니다. (만료 시간 `PX` 지원)       |
+|               | `INCR`         | 키의 숫자 값을 1 증가시킵니다.                    |
+|               | `KEYS`         | 패턴과 일치하는 키를 찾습니다. (`*` 만 지원)      |
+|               | `TYPE`         | 키의 데이터 타입을 반환합니다.                    |
+| **Replication** | `PSYNC`      | 팔로워가 리더와 동기화를 시작합니다.              |
+|               | `REPLCONF`     | 복제 관련 설정을 구성합니다. (`GETACK` 등)        |
+|               | `WAIT`         | 쓰기 명령이 일정 수의 팔로워에게 전파될 때까지 대기합니다.|
+| **Transactions**| `MULTI`      | 트랜잭션을 시작합니다.                            |
+|               | `EXEC`         | 트랜잭션 큐의 모든 명령을 실행합니다.             |
+|               | `DISCARD`      | 트랜잭션을 중단합니다.                            |
+| **Streams**   | `XADD`         | 스트림에 새 엔트리를 추가합니다.                  |
+|               | `XRANGE`       | 스트림의 특정 범위 엔트리를 조회합니다.           |
+|               | `XREAD`        | 하나 이상의 스트림에서 새 엔트리를 읽습니다. (`BLOCK` 지원)|
