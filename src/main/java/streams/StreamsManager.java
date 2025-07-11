@@ -335,11 +335,11 @@ public class StreamsManager {
         StreamId currentId = StreamId.fromString(entryIdStr);
         List<StreamEntry> streamEntries = streams.get(streamKey);
         
-        if (streamEntries == null || streamEntries.isEmpty()) {
-            if (currentId.compareTo(new StreamId(0, 0)) <= 0) {
-                throw new IllegalArgumentException("The ID specified in XADD must be greater than 0-0");
-            }
-        } else {
+        if (currentId.compareTo(new StreamId(0, 0)) <= 0) {
+            throw new IllegalArgumentException("The ID specified in XADD must be greater than 0-0");
+        }
+        
+        if (streamEntries != null && !streamEntries.isEmpty()) {
             StreamId lastId = streamEntries.get(streamEntries.size() - 1).getId();
             if (currentId.compareTo(lastId) <= 0) {
                 throw new IllegalArgumentException("The ID specified in XADD is equal or smaller than the target stream top item");
