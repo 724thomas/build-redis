@@ -87,35 +87,31 @@ public class ReplicationManager {
      */
     public int waitForReplicas(int numReplicas, long timeout) {
         long targetOffset = masterReplOffset.get();
-        
-        if (targetOffset == 0 || numReplicas == 0) {
+
+        if (targetOffset == 0) { // If no commands have been propagated, return all replicas
             return replicas.size();
         }
-        
-        // 즉시 조건을 만족하는 레플리카 수 확인
-        int syncedReplicas = countSyncedReplicas(targetOffset);
-        if (syncedReplicas >= numReplicas) {
-            return syncedReplicas;
+
+        if (numReplicas == 0) { // If we are not waiting for any replica
+             return replicas.size();
         }
+
+        // Request ACKs from all replicas just once
+        requestAcksFromReplicas();
         
         long startTime = System.currentTimeMillis();
-        long remainingTimeout = timeout;
-        
+        long endTime = startTime + timeout;
+
         synchronized (waitLock) {
-            while (remainingTimeout > 0) {
+            while (System.currentTimeMillis() < endTime) {
+                int syncedReplicas = countSyncedReplicas(targetOffset);
+                if (syncedReplicas >= numReplicas) {
+                    return syncedReplicas;
+                }
+
                 try {
-                    // ACK 응답을 기다림
-                    requestAcksFromReplicas();
-                    waitLock.wait(remainingTimeout);
-                    
-                    syncedReplicas = countSyncedReplicas(targetOffset);
-                    if (syncedReplicas >= numReplicas) {
-                        break;
-                    }
-                    
-                    long elapsedTime = System.currentTimeMillis() - startTime;
-                    remainingTimeout = timeout - elapsedTime;
-                    
+                    // Wait for notifications from processAck
+                    waitLock.wait(endTime - System.currentTimeMillis());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     System.err.println("WAIT command interrupted.");
@@ -124,6 +120,7 @@ public class ReplicationManager {
             }
         }
         
+        // Return the count after the timeout has passed
         return countSyncedReplicas(targetOffset);
     }
     
