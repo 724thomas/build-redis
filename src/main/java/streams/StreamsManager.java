@@ -160,32 +160,46 @@ public class StreamsManager {
     public String readStreams(List<String> streamKeys, List<String> lastIdStrs, long timeout) {
         // First, try a non-blocking read.
         List<Object> results = readStreamsNonBlocking(streamKeys, lastIdStrs);
-        
-        // If there are results, or if it's a non-blocking call with no timeout, return immediately.
-        if (!results.isEmpty() || timeout == 0) {
+
+        if (!results.isEmpty() || timeout < 0) { // If there are results or it's a non-blocking call
             return formatXReadResponse(results);
         }
 
-        // If we need to block...
-        long deadline = System.currentTimeMillis() + timeout;
+        long deadline = (timeout > 0) ? System.currentTimeMillis() + timeout : 0;
+        
+        synchronized (notifier) {
+            while (true) {
+                // Check for results again after waking up or before the first wait
+                results = readStreamsNonBlocking(streamKeys, lastIdStrs);
+                if (!results.isEmpty()) {
+                    return formatXReadResponse(results);
+                }
 
-        while (System.currentTimeMillis() < deadline) {
-            synchronized (notifier) {
-                try {
-                    long remainingTime = deadline - System.currentTimeMillis();
+                long currentTime = System.currentTimeMillis();
+                long remainingTime = 0;
+
+                if (timeout > 0) {
+                    remainingTime = deadline - currentTime;
                     if (remainingTime <= 0) {
                         break; // Timeout expired
                     }
-                    notifier.wait(remainingTime);
+                }
+
+                try {
+                    if (timeout == 0) {
+                        notifier.wait(); // Wait indefinitely
+                    } else {
+                        notifier.wait(remainingTime);
+                    }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return RespProtocol.createErrorResponse("ERR command interrupted");
                 }
-            }
-            // Woke up, check for new entries again.
-            results = readStreamsNonBlocking(streamKeys, lastIdStrs);
-            if (!results.isEmpty()) {
-                return formatXReadResponse(results);
+
+                // After waiting, check again if timeout expired (in case of spurious wakeup)
+                if (timeout > 0 && System.currentTimeMillis() >= deadline) {
+                    break;
+                }
             }
         }
         
