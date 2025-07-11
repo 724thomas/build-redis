@@ -91,7 +91,13 @@ public class CommandProcessor {
         }
         String key = args.get(1);
         String value = storageManager.get(key);
-        
+
+        if (value == null) {
+            int intValue = 1;
+            storageManager.set(key, String.valueOf(intValue));
+            return RespProtocol.createInteger(intValue);
+        }
+
         try {
             int intValue = Integer.parseInt(value);
             intValue++;
