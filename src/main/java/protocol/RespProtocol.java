@@ -21,6 +21,7 @@ public class RespProtocol {
     
     public static final String PONG_RESPONSE = "+PONG\r\n";
     public static final String OK_RESPONSE = "+OK\r\n";
+    public static final String QUEUED_RESPONSE = "+QUEUED\r\n";
     private static final String EMPTY_RDB_HEX = "524544495330303131FE00FF6BFD95240E87F293";
     public static final byte[] EMPTY_RDB_BYTES = hexStringToByteArray("524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d626974730140fa056374696d65c26d08bc65fa08757365642d6d656d02b0c0ff00fe00fb000000ff959a41639e7288f7");
 
@@ -112,6 +113,19 @@ public class RespProtocol {
             sb.append(createBulkString(element));
         }
         
+        return sb.toString();
+    }
+
+    /**
+     * Raw RESP 응답 목록으로 RESP 배열을 생성합니다.
+     * EXEC 명령어 응답 처리에 사용됩니다.
+     */
+    public static String createRespArrayFromRaw(List<String> rawResponses) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("*").append(rawResponses.size()).append("\r\n");
+        for (String response : rawResponses) {
+            sb.append(response);
+        }
         return sb.toString();
     }
     
