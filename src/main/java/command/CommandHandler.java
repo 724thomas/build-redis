@@ -42,6 +42,7 @@ public class CommandHandler {
         commandMap.put("xadd", new XaddCommand(streamsService, replicationService));
         commandMap.put("xrange", new XrangeCommand(streamsService));
         commandMap.put("xread", new XreadCommand(streamsService));
+        commandMap.put("incr", new IncrCommand(storageService, replicationService));
 
         // Stateful commands (like REPLCONF) are handled separately.
     }
