@@ -62,6 +62,8 @@ public class CommandProcessor {
                 return handleXReadCommand(args);
             case "WAIT":
                 return handleWaitCommand(args);
+            case "INCR":
+                return handleIncrCommand(args);
             default:
                 return RespProtocol.createErrorResponse("unknown command '" + command + "'");
         }
@@ -78,6 +80,23 @@ public class CommandProcessor {
             int ackReplicas = replicationManager.waitForReplicas(numReplicas, timeout);
             return RespProtocol.createInteger(ackReplicas);
             
+        } catch (NumberFormatException e) {
+            return RespProtocol.createErrorResponse("value is not an integer or out of range");
+        }
+    }
+
+    private String handleIncrCommand(List<String> args) {
+        if (args.size() < 2) {
+            return RespProtocol.createErrorResponse("wrong number of arguments for 'incr' command");
+        }
+        String key = args.get(1);
+        String value = storageManager.get(key);
+        
+        try {
+            int intValue = Integer.parseInt(value);
+            intValue++;
+            storageManager.set(key, String.valueOf(intValue));
+            return RespProtocol.createInteger(intValue);
         } catch (NumberFormatException e) {
             return RespProtocol.createErrorResponse("value is not an integer or out of range");
         }
