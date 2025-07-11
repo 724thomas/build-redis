@@ -14,6 +14,7 @@ import java.util.stream.Collectors;
 public class StreamsManager {
     
     private final Map<String, List<StreamEntry>> streams = new ConcurrentHashMap<>();
+    private final Object notifier = new Object();
     
     /**
      * Represents a stream entry ID.
@@ -108,6 +109,10 @@ public class StreamsManager {
         
         streams.computeIfAbsent(streamKey, k -> new ArrayList<>()).add(entry);
         
+        synchronized (notifier) {
+            notifier.notifyAll();
+        }
+        
         return RespProtocol.createBulkString(finalEntryId.toString());
     }
     
@@ -127,7 +132,7 @@ public class StreamsManager {
                                                  .filter(entry -> isInRange(entry.getId(), startId, endId))
                                                  .collect(Collectors.toList());
         
-        return formatStreamEntries(result);
+        return formatXRangeResponse(result);
     }
     
     private boolean isInRange(StreamId id, StreamId startId, StreamId endId) {
@@ -147,47 +152,48 @@ public class StreamsManager {
         }
         return StreamId.fromString(idStr);
     }
-    
-    /**
-     * 스트림에서 특정 ID 이후의 엔트리들을 읽어옵니다.
-     */
-    public String readStream(String streamKey, String lastIdStr) {
-        List<StreamEntry> streamEntries = streams.get(streamKey);
-        if (streamEntries == null || streamEntries.isEmpty()) {
-            return RespProtocol.createEmptyArray();
-        }
-        
-        StreamId lastStreamId;
-        if ("$".equals(lastIdStr)) {
-            if (streamEntries.isEmpty()) {
-                return RespProtocol.createEmptyArray();
-            }
-            lastStreamId = streamEntries.get(streamEntries.size() - 1).getId();
-        } else {
-            lastStreamId = StreamId.fromString(lastIdStr);
-        }
-        
-        List<StreamEntry> result = streamEntries.stream()
-                                                 .filter(entry -> entry.getId().compareTo(lastStreamId) > 0)
-                                                 .collect(Collectors.toList());
-        
-        if (result.isEmpty()) {
-            return RespProtocol.createEmptyArray();
-        }
-        
-        StringBuilder sb = new StringBuilder();
-        sb.append("*1\r\n");
-        sb.append("*2\r\n");
-        sb.append(RespProtocol.createBulkString(streamKey));
-        sb.append(formatStreamEntries(result));
-        
-        return sb.toString();
+
+    public String readStreams(List<String> streamKeys, List<String> lastIdStrs) {
+        return readStreams(streamKeys, lastIdStrs, -1); // Non-blocking by default
     }
     
-    /**
-     * 스트림에서 특정 ID 이후의 엔트리들을 읽어옵니다.
-     */
-    public String readStreams(List<String> streamKeys, List<String> lastIdStrs) {
+    public String readStreams(List<String> streamKeys, List<String> lastIdStrs, long timeout) {
+        // First, try a non-blocking read.
+        List<Object> results = readStreamsNonBlocking(streamKeys, lastIdStrs);
+        
+        // If there are results, or if it's a non-blocking call with no timeout, return immediately.
+        if (!results.isEmpty() || timeout == 0) {
+            return formatXReadResponse(results);
+        }
+
+        // If we need to block...
+        long deadline = System.currentTimeMillis() + timeout;
+
+        while (System.currentTimeMillis() < deadline) {
+            synchronized (notifier) {
+                try {
+                    long remainingTime = deadline - System.currentTimeMillis();
+                    if (remainingTime <= 0) {
+                        break; // Timeout expired
+                    }
+                    notifier.wait(remainingTime);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return RespProtocol.createErrorResponse("ERR command interrupted");
+                }
+            }
+            // Woke up, check for new entries again.
+            results = readStreamsNonBlocking(streamKeys, lastIdStrs);
+            if (!results.isEmpty()) {
+                return formatXReadResponse(results);
+            }
+        }
+        
+        // Timeout expired and no data found.
+        return RespProtocol.createNullBulkString();
+    }
+    
+    private List<Object> readStreamsNonBlocking(List<String> streamKeys, List<String> lastIdStrs) {
         List<Object> allStreamResults = new ArrayList<>();
         
         for (int i = 0; i < streamKeys.size(); i++) {
@@ -227,12 +233,30 @@ public class StreamsManager {
                 allStreamResults.add(singleStreamResult);
             }
         }
-        
+        return allStreamResults;
+    }
+    
+    private String formatXReadResponse(List<Object> allStreamResults) {
         if (allStreamResults.isEmpty()) {
             return RespProtocol.createNullBulkString();
         }
-        
         return RespProtocol.createArrayOfArrays(allStreamResults);
+    }
+    
+    private String formatXRangeResponse(List<StreamEntry> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return RespProtocol.createEmptyArray();
+        }
+        
+        List<Object> responseList = new ArrayList<>();
+        for (StreamEntry entry : entries) {
+            List<Object> entryList = new ArrayList<>();
+            entryList.add(entry.getId().toString());
+            entryList.add(new ArrayList<>(entry.getFieldValues()));
+            responseList.add(entryList);
+        }
+        
+        return RespProtocol.createArrayOfArrays(responseList);
     }
 
     public boolean exists(String key) {
@@ -253,51 +277,43 @@ public class StreamsManager {
         }
         
         if (entryIdStr.endsWith("-*")) {
-            long time = Long.parseLong(entryIdStr.substring(0, entryIdStr.length() - 2));
+            long timePart = Long.parseLong(entryIdStr.substring(0, entryIdStr.length() - 2));
+            if (timePart == 0) {
+                 List<StreamEntry> streamEntries = streams.get(streamKey);
+                if (streamEntries != null && !streamEntries.isEmpty()) {
+                    StreamId lastId = streamEntries.get(streamEntries.size() - 1).getId();
+                    if (lastId.time() == 0) {
+                        return new StreamId(0, lastId.sequence() + 1);
+                    }
+                }
+                return new StreamId(0, 1);
+            }
+            
             List<StreamEntry> streamEntries = streams.get(streamKey);
-            long sequence = 0;
+            long sequencePart = 0;
             if (streamEntries != null && !streamEntries.isEmpty()) {
                 StreamId lastId = streamEntries.get(streamEntries.size() - 1).getId();
-                if (lastId.time() == time) {
-                    sequence = lastId.sequence() + 1;
+                if (lastId.time() == timePart) {
+                    sequencePart = lastId.sequence() + 1;
                 }
             }
-            if (time == 0 && sequence == 0) {
-                sequence = 1;
-            }
-            return new StreamId(time, sequence);
+            return new StreamId(timePart, sequencePart);
         }
         
         StreamId currentId = StreamId.fromString(entryIdStr);
-        
-        if (currentId.time() == 0 && currentId.sequence() == 0) {
-            throw new IllegalArgumentException("The ID specified in XADD must be greater than 0-0");
-        }
-        
         List<StreamEntry> streamEntries = streams.get(streamKey);
-        if (streamEntries != null && !streamEntries.isEmpty()) {
+        
+        if (streamEntries == null || streamEntries.isEmpty()) {
+            if (currentId.compareTo(new StreamId(0, 0)) <= 0) {
+                throw new IllegalArgumentException("ERR The ID specified in XADD must be greater than 0-0");
+            }
+        } else {
             StreamId lastId = streamEntries.get(streamEntries.size() - 1).getId();
             if (currentId.compareTo(lastId) <= 0) {
-                throw new IllegalArgumentException("The ID specified in XADD is equal or smaller than the target stream top item");
+                throw new IllegalArgumentException("ERR The ID specified in XADD is equal or smaller than the target stream top item");
             }
         }
         
         return currentId;
     }
-    
-    private String formatStreamEntries(List<StreamEntry> entries) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("*").append(entries.size()).append("\r\n");
-        
-        for (StreamEntry entry : entries) {
-            sb.append("*2\r\n");
-            sb.append(RespProtocol.createBulkString(entry.getId().toString()));
-            sb.append("*").append(entry.getFieldValues().size()).append("\r\n");
-            for (String fieldValue : entry.getFieldValues()) {
-                sb.append(RespProtocol.createBulkString(fieldValue));
-            }
-        }
-        
-        return sb.toString();
-    }
-} 
+}
