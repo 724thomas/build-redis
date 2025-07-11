@@ -1,4 +1,4 @@
-package storage;
+package service;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -7,9 +7,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 키-값 저장소와 만료 시간 관리를 담당하는 클래스
+ * 키-값 저장소와 만료 시간 관리를 담당하는 서비스 클래스
  */
-public class StorageManager {
+public class StorageService {
     
     // 키-값 저장소 (스레드 안전)
     private final Map<String, String> keyValueStore = new ConcurrentHashMap<>();

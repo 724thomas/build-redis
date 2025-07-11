@@ -5,6 +5,8 @@ package config;
  */
 public class ServerConfig {
     private int port = 6379;
+    private String role = "master";
+    private final String masterReplId = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb";
     private String rdbDir = "/tmp/redis-files";
     private String rdbFilename = "dump.rdb";
     
@@ -32,6 +34,14 @@ public class ServerConfig {
         return rdbFilename;
     }
     
+    public String getRole() {
+        return role;
+    }
+
+    public String getMasterReplId() {
+        return masterReplId;
+    }
+
     public boolean isReplica() {
         return isReplica;
     }
@@ -104,6 +114,7 @@ public class ServerConfig {
                         String[] parts = replicaofValue.split(" ");
                         if (parts.length == 2) {
                             this.isReplica = true;
+                            this.role = "slave";
                             this.masterHost = parts[0];
                             try {
                                 this.masterPort = Integer.parseInt(parts[1]);

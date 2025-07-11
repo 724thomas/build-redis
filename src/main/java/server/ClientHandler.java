@@ -1,8 +1,8 @@
 package server;
 
-import command.CommandProcessor;
+import command.CommandHandler;
 import protocol.RespProtocol;
-import replication.ReplicationManager;
+import service.ReplicationService;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -11,24 +11,20 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.net.SocketException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
 
 public class ClientHandler implements Runnable {
     
     private final Socket clientSocket;
-    private final CommandProcessor commandProcessor;
-    private final ReplicationManager replicationManager;
+    private final CommandHandler commandHandler;
+    private final ReplicationService replicationService;
     private boolean inTransaction = false;
     private final List<List<String>> transactionQueue = new ArrayList<>();
     
-    private static final Set<String> WRITE_COMMANDS = Set.of("SET", "DEL", "XADD", "INCR");
-    
-    public ClientHandler(Socket clientSocket, CommandProcessor commandProcessor, ReplicationManager replicationManager) {
+    public ClientHandler(Socket clientSocket, CommandHandler commandHandler, ReplicationService replicationService) {
         this.clientSocket = clientSocket;
-        this.commandProcessor = commandProcessor;
-        this.replicationManager = replicationManager;
+        this.commandHandler = commandHandler;
+        this.replicationService = replicationService;
     }
     
     @Override
@@ -45,7 +41,7 @@ public class ClientHandler implements Runnable {
         } catch (IOException e) {
             System.err.println("Error handling client " + clientAddress + ": " + e.getMessage());
         } finally {
-            replicationManager.removeReplica(clientSocket);
+            replicationService.removeReplica(clientSocket);
             try {
                 clientSocket.close();
             } catch (IOException e) {
@@ -59,28 +55,19 @@ public class ClientHandler implements Runnable {
     private void handleClientLoop(BufferedReader reader, OutputStream outputStream, String clientAddress) throws IOException {
         String line;
         while ((line = reader.readLine()) != null) {
-            System.out.println("Received from " + clientAddress + ": " + line.trim());
-            
             try {
                 if (!line.startsWith("*")) {
-                    continue; // 단순 PING 등 비배열 명령어는 현재 로직에서 무시
+                    continue; // Ignore non-array commands for now
                 }
                 
                 int arrayLength = Integer.parseInt(line.substring(1));
-                List<String> commands = RespProtocol.parseRespArray(reader, arrayLength);
-                if (commands.isEmpty()) {
+                List<String> commandParts = RespProtocol.parseRespArray(reader, arrayLength);
+                if (commandParts.isEmpty()) {
                     continue;
                 }
                 
-                if (inTransaction) {
-                    handleTransactionCommand(commands, outputStream);
-                } else {
-                    handleNormalCommand(commands, outputStream);
-                }
+                handleCommand(commandParts, outputStream);
                 
-            } catch (NumberFormatException e) {
-                System.err.println("Invalid command format from client " + clientAddress + ": " + e.getMessage());
-                sendResponse(outputStream, RespProtocol.createErrorResponse("invalid command format"));
             } catch (Exception e) {
                 System.err.println("Error processing command from client " + clientAddress + ": " + e.getMessage());
                 sendResponse(outputStream, RespProtocol.createErrorResponse("internal server error"));
@@ -88,83 +75,88 @@ public class ClientHandler implements Runnable {
         }
     }
     
-    private void handleTransactionCommand(List<String> commands, OutputStream outputStream) throws IOException {
-        String command = commands.get(0).toUpperCase();
+    private void handleCommand(List<String> commandParts, OutputStream outputStream) throws IOException {
+        String commandName = commandParts.get(0).toLowerCase();
         
-        switch (command) {
-            case "MULTI":
-                sendResponse(outputStream, RespProtocol.createErrorResponse("MULTI calls can not be nested"));
-                break;
-            case "EXEC":
+        if (inTransaction) {
+            if (commandName.equals("exec")) {
                 executeTransaction(outputStream);
-                break;
-            case "DISCARD":
-                inTransaction = false;
-                transactionQueue.clear();
-                sendResponse(outputStream, RespProtocol.OK_RESPONSE);
-                break;
-            default:
-                transactionQueue.add(commands);
-                sendResponse(outputStream, RespProtocol.QUEUED_RESPONSE);
-                break;
-        }
-    }
-    
-    private void executeTransaction(OutputStream outputStream) throws IOException {
-        inTransaction = false;
-        List<String> responses = new ArrayList<>();
-        for (List<String> queuedCommand : transactionQueue) {
-            String response = commandProcessor.processCommand(queuedCommand.get(0), queuedCommand);
-            responses.add(response);
-            
-            // 쓰기 명령 전파
-            if (WRITE_COMMANDS.contains(queuedCommand.get(0).toUpperCase())) {
-                replicationManager.propagateCommand(queuedCommand);
+            } else if (commandName.equals("discard")) {
+                discardTransaction(outputStream);
+            } else {
+                queueCommand(commandParts, outputStream);
+            }
+        } else {
+            if (commandName.equals("multi")) {
+                startTransaction(outputStream);
+            } else if (commandName.equals("exec")) {
+                sendResponse(outputStream, RespProtocol.createErrorResponse("EXEC without MULTI"));
+            } else if (commandName.equals("discard")) {
+                sendResponse(outputStream, RespProtocol.createErrorResponse("DISCARD without MULTI"));
+            } else {
+                executeSingleCommand(commandParts, outputStream);
             }
         }
+    }
+
+    private void executeSingleCommand(List<String> commandParts, OutputStream outputStream) throws IOException {
+        String commandName = commandParts.get(0);
+        List<String> args = commandParts.subList(1, commandParts.size());
+        
+        String response = commandHandler.handleCommand(commandName, args, clientSocket);
+
+        if (commandName.equalsIgnoreCase("PSYNC")) {
+            if (response != null) {
+                // For PSYNC, send the initial response but don't flush yet.
+                // The RDB file will be sent immediately after, and we'll flush then.
+                sendResponse(outputStream, response, false);
+            }
+            sendEmptyRdb(outputStream, clientSocket.getRemoteSocketAddress().toString());
+            replicationService.addReplica(clientSocket);
+        } else {
+            if (response != null) {
+                sendResponse(outputStream, response, true);
+            }
+        }
+    }
+
+    private void startTransaction(OutputStream outputStream) throws IOException {
+        inTransaction = true;
         transactionQueue.clear();
+        sendResponse(outputStream, RespProtocol.OK_RESPONSE);
+    }
+
+    private void queueCommand(List<String> commandParts, OutputStream outputStream) throws IOException {
+        transactionQueue.add(commandParts);
+        sendResponse(outputStream, RespProtocol.QUEUED_RESPONSE);
+    }
+
+    private void executeTransaction(OutputStream outputStream) throws IOException {
+        List<String> responses = new ArrayList<>();
+        for (List<String> queuedCommand : transactionQueue) {
+            String commandName = queuedCommand.get(0);
+            List<String> args = queuedCommand.subList(1, queuedCommand.size());
+            String response = commandHandler.handleCommand(commandName, args, clientSocket);
+            if (response == null) {
+                // Should not happen for commands in a transaction, but as a safeguard
+                responses.add(RespProtocol.createNullBulkString());
+            } else {
+                responses.add(response);
+            }
+        }
+        
         sendResponse(outputStream, RespProtocol.createRespArrayFromRaw(responses));
+        resetTransactionState();
     }
     
-    private void handleNormalCommand(List<String> commands, OutputStream outputStream) throws IOException {
-        String command = commands.get(0).toUpperCase();
-        String clientAddress = clientSocket.getRemoteSocketAddress().toString();
-        
-        switch (command) {
-            case "MULTI":
-                inTransaction = true;
-                transactionQueue.clear();
-                sendResponse(outputStream, RespProtocol.OK_RESPONSE);
-                break;
-            case "EXEC":
-                sendResponse(outputStream, RespProtocol.createErrorResponse("EXEC without MULTI"));
-                break;
-            case "DISCARD":
-                sendResponse(outputStream, RespProtocol.createErrorResponse("DISCARD without MULTI"));
-                break;
-            default:
-                // 레플리카로부터의 ACK 처리
-                if (command.equals("REPLCONF") && commands.size() >= 3 && "ACK".equalsIgnoreCase(commands.get(1))) {
-                    replicationManager.processAck(clientSocket, Long.parseLong(commands.get(2)));
-                    return; // ACK는 응답 없음
-                }
-                
-                String response = commandProcessor.processCommand(command, commands);
-                sendResponse(outputStream, response);
-                System.out.println("Sent to " + clientAddress + ": " + response.trim());
-                
-                // PSYNC에 대한 특별 처리: RDB 파일 전송 및 레플리카 등록
-                if (command.equals("PSYNC") && response.startsWith("+FULLRESYNC")) {
-                    sendEmptyRdb(outputStream, clientAddress);
-                    replicationManager.addReplica(clientSocket);
-                }
-                
-                // 쓰기 명령어를 레플리카에 전파
-                if (WRITE_COMMANDS.contains(command)) {
-                    replicationManager.propagateCommand(commands);
-                }
-                break;
-        }
+    private void discardTransaction(OutputStream outputStream) throws IOException {
+        resetTransactionState();
+        sendResponse(outputStream, RespProtocol.OK_RESPONSE);
+    }
+
+    private void resetTransactionState() {
+        inTransaction = false;
+        transactionQueue.clear();
     }
     
     private void sendEmptyRdb(OutputStream outputStream, String clientAddress) throws IOException {
@@ -177,11 +169,14 @@ public class ClientHandler implements Runnable {
         System.out.println("Sent empty RDB file to " + clientAddress);
     }
     
-    /**
-     * 클라이언트에게 응답을 전송합니다.
-     */
-    private void sendResponse(OutputStream outputStream, String response) throws IOException {
+    private void sendResponse(OutputStream outputStream, String response, boolean flush) throws IOException {
         outputStream.write(response.getBytes());
-        outputStream.flush();
+        if (flush) {
+            outputStream.flush();
+        }
+    }
+
+    private void sendResponse(OutputStream outputStream, String response) throws IOException {
+        sendResponse(outputStream, response, true);
     }
 } 

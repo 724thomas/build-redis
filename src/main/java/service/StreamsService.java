@@ -1,5 +1,7 @@
-package streams;
+package service;
 
+import model.StreamEntry;
+import model.StreamId;
 import protocol.RespProtocol;
 
 import java.util.ArrayList;
@@ -9,72 +11,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * Redis Streams 기능을 관리하는 클래스
+ * Redis Streams 기능을 관리하는 서비스 클래스
  */
-public class StreamsManager {
+public class StreamsService {
     
     private final Map<String, List<StreamEntry>> streams = new ConcurrentHashMap<>();
     private final Object notifier = new Object();
-    
-    /**
-     * Represents a stream entry ID.
-     */
-    public record StreamId(long time, long sequence) implements Comparable<StreamId> {
-        public static StreamId fromString(String idStr) {
-            if (idStr == null) {
-                throw new IllegalArgumentException("Invalid stream ID format: null");
-            }
-            if ("-".equals(idStr)) {
-                return new StreamId(0, 0);
-            }
-            if ("+".equals(idStr)) {
-                return new StreamId(Long.MAX_VALUE, Long.MAX_VALUE);
-            }
-            
-            String[] parts = idStr.split("-");
-            if (parts.length == 1) {
-                return new StreamId(Long.parseLong(parts[0]), 0);
-            }
-            if (parts.length == 2) {
-                return new StreamId(Long.parseLong(parts[0]), Long.parseLong(parts[1]));
-            }
-            throw new IllegalArgumentException("Invalid stream ID format: " + idStr);
-        }
-        
-        @Override
-        public String toString() {
-            return time + "-" + sequence;
-        }
-        
-        @Override
-        public int compareTo(StreamId other) {
-            if (this.time != other.time) {
-                return Long.compare(this.time, other.time);
-            }
-            return Long.compare(this.sequence, other.sequence);
-        }
-    }
-    
-    /**
-     * Redis Streams 엔트리를 저장하는 내부 클래스
-     */
-    public static class StreamEntry {
-        private final StreamId id;
-        private final List<String> fieldValues;
-        
-        public StreamEntry(StreamId id, List<String> fieldValues) {
-            this.id = id;
-            this.fieldValues = fieldValues;
-        }
-        
-        public StreamId getId() {
-            return id;
-        }
-        
-        public List<String> getFieldValues() {
-            return fieldValues;
-        }
-    }
     
     /**
      * 스트림에서 특정 ID 이후의 엔트리들을 가져옵니다.
@@ -333,12 +275,12 @@ public class StreamsManager {
         }
         
         StreamId currentId = StreamId.fromString(entryIdStr);
-        List<StreamEntry> streamEntries = streams.get(streamKey);
         
         if (currentId.compareTo(new StreamId(0, 0)) <= 0) {
             throw new IllegalArgumentException("The ID specified in XADD must be greater than 0-0");
         }
         
+        List<StreamEntry> streamEntries = streams.get(streamKey);
         if (streamEntries != null && !streamEntries.isEmpty()) {
             StreamId lastId = streamEntries.get(streamEntries.size() - 1).getId();
             if (currentId.compareTo(lastId) <= 0) {
@@ -348,4 +290,4 @@ public class StreamsManager {
         
         return currentId;
     }
-}
+} 
