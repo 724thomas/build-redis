@@ -336,13 +336,48 @@ public class CommandProcessor {
      * Redis Streams XREAD 명령어를 처리합니다.
      */
     private String handleXReadCommand(List<String> args) {
-        if (args.size() < 4 || !"streams".equalsIgnoreCase(args.get(1))) {
-            return RespProtocol.createErrorResponse("ERR syntax error");
+        int blockIndex = -1;
+        for (int i = 0; i < args.size(); i++) {
+            if ("block".equalsIgnoreCase(args.get(i))) {
+                blockIndex = i;
+                break;
+            }
+        }
+
+        long timeout = -1;
+        List<String> remainingArgs;
+
+        if (blockIndex != -1) {
+            if (args.size() <= blockIndex + 1) {
+                return RespProtocol.createErrorResponse("ERR syntax error");
+            }
+            try {
+                timeout = Long.parseLong(args.get(blockIndex + 1));
+            } catch (NumberFormatException e) {
+                return RespProtocol.createErrorResponse("ERR value is not an integer or out of range");
+            }
+            List<String> tempArgs = new ArrayList<>(args);
+            tempArgs.remove(blockIndex + 1);
+            tempArgs.remove(blockIndex);
+            remainingArgs = tempArgs;
+        } else {
+            remainingArgs = args;
         }
         
-        // streams 키워드 제외
-        List<String> allArgs = args.subList(2, args.size());
-        
+        int streamsIndex = -1;
+        for (int i = 0; i < remainingArgs.size(); i++) {
+            if ("streams".equalsIgnoreCase(remainingArgs.get(i))) {
+                streamsIndex = i;
+                break;
+            }
+        }
+
+        if (streamsIndex == -1) {
+             return RespProtocol.createErrorResponse("ERR syntax error");
+        }
+
+        List<String> allArgs = remainingArgs.subList(streamsIndex + 1, remainingArgs.size());
+
         int numStreams = allArgs.size() / 2;
         if (allArgs.size() % 2 != 0) {
             return RespProtocol.createErrorResponse("ERR Unbalanced XREAD list of streams: for each stream key an ID must be specified.");
@@ -351,6 +386,6 @@ public class CommandProcessor {
         List<String> keys = new ArrayList<>(allArgs.subList(0, numStreams));
         List<String> ids = new ArrayList<>(allArgs.subList(numStreams, allArgs.size()));
 
-        return streamsManager.readStreams(keys, ids);
+        return streamsManager.readStreams(keys, ids, timeout);
     }
 } 
