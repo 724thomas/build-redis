@@ -104,15 +104,19 @@ public class ClientHandler implements Runnable {
         List<String> args = commandParts.subList(1, commandParts.size());
         
         String response = commandHandler.handleCommand(commandName, args, clientSocket);
-        
-        if (response != null) {
-            sendResponse(outputStream, response);
-        }
 
-        // Special handling for PSYNC after sending the initial response
         if (commandName.equalsIgnoreCase("PSYNC")) {
+            if (response != null) {
+                // For PSYNC, send the initial response but don't flush yet.
+                // The RDB file will be sent immediately after, and we'll flush then.
+                sendResponse(outputStream, response, false);
+            }
             sendEmptyRdb(outputStream, clientSocket.getRemoteSocketAddress().toString());
             replicationService.addReplica(clientSocket);
+        } else {
+            if (response != null) {
+                sendResponse(outputStream, response, true);
+            }
         }
     }
 
@@ -165,8 +169,14 @@ public class ClientHandler implements Runnable {
         System.out.println("Sent empty RDB file to " + clientAddress);
     }
     
-    private void sendResponse(OutputStream outputStream, String response) throws IOException {
+    private void sendResponse(OutputStream outputStream, String response, boolean flush) throws IOException {
         outputStream.write(response.getBytes());
-        outputStream.flush();
+        if (flush) {
+            outputStream.flush();
+        }
+    }
+
+    private void sendResponse(OutputStream outputStream, String response) throws IOException {
+        sendResponse(outputStream, response, true);
     }
 } 
