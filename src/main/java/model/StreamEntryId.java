@@ -1,4 +1,4 @@
-package streams;
+package model;
 
 import java.util.Objects;
 
