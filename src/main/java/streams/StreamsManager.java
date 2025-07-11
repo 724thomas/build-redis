@@ -158,33 +158,51 @@ public class StreamsManager {
     }
     
     public String readStreams(List<String> streamKeys, List<String> lastIdStrs, long timeout) {
+        // For blocking calls, we must resolve '$' to the current latest ID *before* waiting.
+        List<String> idsForRead = new ArrayList<>(lastIdStrs);
+        if (timeout >= 0) {
+            for (int i = 0; i < streamKeys.size(); i++) {
+                if ("$".equals(idsForRead.get(i))) {
+                    String streamKey = streamKeys.get(i);
+                    List<StreamEntry> streamEntries = streams.get(streamKey);
+                    if (streamEntries != null && !streamEntries.isEmpty()) {
+                        idsForRead.set(i, streamEntries.get(streamEntries.size() - 1).getId().toString());
+                    } else {
+                        // If stream is empty, we want to get all entries from the beginning
+                        // once they are added.
+                        idsForRead.set(i, "0-0");
+                    }
+                }
+            }
+        }
+        
         // First, try a non-blocking read.
-        List<Object> results = readStreamsNonBlocking(streamKeys, lastIdStrs);
-
+        List<Object> results = readStreamsNonBlocking(streamKeys, idsForRead);
+        
         if (!results.isEmpty() || timeout < 0) { // If there are results or it's a non-blocking call
             return formatXReadResponse(results);
         }
-
+        
         long deadline = (timeout > 0) ? System.currentTimeMillis() + timeout : 0;
         
         synchronized (notifier) {
             while (true) {
                 // Check for results again after waking up or before the first wait
-                results = readStreamsNonBlocking(streamKeys, lastIdStrs);
+                results = readStreamsNonBlocking(streamKeys, idsForRead);
                 if (!results.isEmpty()) {
                     return formatXReadResponse(results);
                 }
-
+                
                 long currentTime = System.currentTimeMillis();
                 long remainingTime = 0;
-
+                
                 if (timeout > 0) {
                     remainingTime = deadline - currentTime;
                     if (remainingTime <= 0) {
                         break; // Timeout expired
                     }
                 }
-
+                
                 try {
                     if (timeout == 0) {
                         notifier.wait(); // Wait indefinitely
@@ -195,7 +213,7 @@ public class StreamsManager {
                     Thread.currentThread().interrupt();
                     return RespProtocol.createErrorResponse("ERR command interrupted");
                 }
-
+                
                 // After waiting, check again if timeout expired (in case of spurious wakeup)
                 if (timeout > 0 && System.currentTimeMillis() >= deadline) {
                     break;
