@@ -337,30 +337,20 @@ public class CommandProcessor {
      */
     private String handleXReadCommand(List<String> args) {
         if (args.size() < 4 || !"streams".equalsIgnoreCase(args.get(1))) {
-            return RespProtocol.createErrorResponse("wrong number of arguments for 'XREAD' command or missing 'streams' keyword");
-        }
-
-        int streamKeywordIndex = -1;
-        for (int i = 0; i < args.size(); i++) {
-            if ("streams".equalsIgnoreCase(args.get(i))) {
-                streamKeywordIndex = i;
-                break;
-            }
-        }
-
-        if (streamKeywordIndex == -1) {
-            return RespProtocol.createErrorResponse("Syntax error in XREAD command");
+            return RespProtocol.createErrorResponse("ERR syntax error");
         }
         
-        List<String> streamKeysAndIds = args.subList(streamKeywordIndex + 1, args.size());
-        if (streamKeysAndIds.size() % 2 != 0) {
-            return RespProtocol.createErrorResponse("Unbalanced list of streams and IDs");
+        // streams 키워드 제외
+        List<String> allArgs = args.subList(2, args.size());
+        
+        int numStreams = allArgs.size() / 2;
+        if (allArgs.size() % 2 != 0) {
+            return RespProtocol.createErrorResponse("ERR Unbalanced XREAD list of streams: for each stream key an ID must be specified.");
         }
         
-        int numStreams = streamKeysAndIds.size() / 2;
-        List<String> streamKeys = streamKeysAndIds.subList(0, numStreams);
-        List<String> lastIds = streamKeysAndIds.subList(numStreams, streamKeysAndIds.size());
+        List<String> keys = new ArrayList<>(allArgs.subList(0, numStreams));
+        List<String> ids = new ArrayList<>(allArgs.subList(numStreams, allArgs.size()));
 
-        return streamsManager.readStreams(streamKeys, lastIds);
+        return streamsManager.readStreams(keys, ids);
     }
 } 
