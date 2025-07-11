@@ -16,7 +16,7 @@ public class PsyncCommand implements Command {
     public String execute(List<String> args) {
         // For simplicity in this stage, we always perform a full resynchronization.
         // A more complete implementation would handle partial resync based on PSYNC args.
-        String response = "+FULLRESYNC " + serverConfig.getMasterReplId() + " 0";
-        return response;
+        String responseContent = "FULLRESYNC " + serverConfig.getMasterReplId() + " 0";
+        return RespProtocol.createSimpleString(responseContent);
     }
 } 
