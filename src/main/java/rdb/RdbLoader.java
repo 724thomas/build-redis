@@ -1,7 +1,7 @@
 package rdb;
 
 import config.ServerConfig;
-import storage.StorageManager;
+import service.StorageService;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -14,11 +14,11 @@ import java.nio.file.Paths;
 public class RdbLoader {
     
     private final ServerConfig config;
-    private final StorageManager storageManager;
+    private final StorageService storageService;
     
-    public RdbLoader(ServerConfig config, StorageManager storageManager) {
+    public RdbLoader(ServerConfig config, StorageService storageService) {
         this.config = config;
-        this.storageManager = storageManager;
+        this.storageService = storageService;
     }
     
     /**
@@ -144,7 +144,7 @@ public class RdbLoader {
         if (valueResult == null) return pos;
         pos = valueResult.nextPos;
         
-        storageManager.setWithExpiry(keyResult.stringValue, valueResult.stringValue, expireTime);
+        storageService.setWithExpiry(keyResult.stringValue, valueResult.stringValue, expireTime);
         System.out.println("Loaded key with expiry: " + keyResult.stringValue + " = " + valueResult.stringValue + " (expires: " + expireTime + ")");
         
         return pos;
@@ -162,7 +162,7 @@ public class RdbLoader {
         if (valueResult == null) return pos;
         pos = valueResult.nextPos;
         
-        storageManager.set(keyResult.stringValue, valueResult.stringValue);
+        storageService.set(keyResult.stringValue, valueResult.stringValue);
         System.out.println("Loaded key: " + keyResult.stringValue + " = " + valueResult.stringValue);
         
         return pos;

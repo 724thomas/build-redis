@@ -1,7 +1,7 @@
-package replication;
+package service;
 
-import command.CommandProcessor;
 import config.ServerConfig;
+import model.ReplicaInfo;
 import protocol.RespProtocol;
 
 import java.io.IOException;
@@ -15,16 +15,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Master-Replica 복제 관련 로직을 관리하는 클래스
+ * Master-Replica 복제 관련 로직을 관리하는 서비스 클래스
  */
-public class ReplicationManager {
+public class ReplicationService {
     
     private final ServerConfig config;
     private final List<ReplicaInfo> replicas = new CopyOnWriteArrayList<>();
     private final AtomicLong masterReplOffset = new AtomicLong(0);
     private final Object waitLock = new Object();
     
-    public ReplicationManager(ServerConfig config) {
+    public ReplicationService(ServerConfig config) {
         this.config = config;
     }
     

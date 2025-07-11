@@ -1,6 +1,7 @@
 package protocol;
 
-import streams.StreamsManager;
+import model.StreamEntry;
+import model.StreamId;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -201,11 +202,36 @@ public class RespProtocol {
         
         return sb.toString();
     }
+    
+    /**
+     * XRANGE 명령어의 응답을 RESP 형식으로 포맷팅합니다.
+     */
+    public static String formatXRangeResponse(List<StreamEntry> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return createEmptyArray();
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("*").append(entries.size()).append("\r\n");
+
+        for (StreamEntry entry : entries) {
+            sb.append("*2\r\n"); // Array for [entryId, fieldValues]
+            sb.append(createBulkString(entry.getId().toString()));
+
+            List<String> fieldValues = entry.getFieldValues();
+            sb.append("*").append(fieldValues.size()).append("\r\n"); // Array for fieldValues
+            for (String fieldValue : fieldValues) {
+                sb.append(createBulkString(fieldValue));
+            }
+        }
+        return sb.toString();
+    }
+
 
     /**
      * XREAD 명령어의 응답을 RESP 형식으로 포맷팅합니다.
      */
-    public static String formatXReadResponse(Map<String, List<StreamsManager.StreamEntry>> result) {
+    public static String formatXReadResponse(Map<String, List<StreamEntry>> result) {
         if (result == null || result.isEmpty()) {
             return createNullArray(); // As per XREAD spec, it should be null when no new entries or timeout
         }
@@ -213,24 +239,14 @@ public class RespProtocol {
         StringBuilder sb = new StringBuilder();
         sb.append("*").append(result.size()).append("\r\n");
 
-        for (Map.Entry<String, List<StreamsManager.StreamEntry>> streamResult : result.entrySet()) {
+        for (Map.Entry<String, List<StreamEntry>> streamResult : result.entrySet()) {
             String streamKey = streamResult.getKey();
-            List<StreamsManager.StreamEntry> entries = streamResult.getValue();
+            List<StreamEntry> entries = streamResult.getValue();
 
             sb.append("*2\r\n"); // Array for [streamKey, entries]
             sb.append(createBulkString(streamKey));
 
-            sb.append("*").append(entries.size()).append("\r\n"); // Array for entries
-            for (StreamsManager.StreamEntry entry : entries) {
-                sb.append("*2\r\n"); // Array for [entryId, fieldValues]
-                sb.append(createBulkString(entry.getId().toString()));
-
-                List<String> fieldValues = entry.getFieldValues();
-                sb.append("*").append(fieldValues.size()).append("\r\n"); // Array for fieldValues
-                for (String fieldValue : fieldValues) {
-                    sb.append(createBulkString(fieldValue));
-                }
-            }
+            sb.append(formatXRangeResponse(entries));
         }
         return sb.toString();
     }

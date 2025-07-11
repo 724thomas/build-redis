@@ -1,6 +1,6 @@
 package replication;
 
-import command.CommandProcessor;
+import command.CommandHandler;
 import config.ServerConfig;
 import protocol.RespProtocol;
 
@@ -22,12 +22,12 @@ import java.util.List;
 public class ReplicationClient {
     
     private final ServerConfig config;
-    private final CommandProcessor commandProcessor;
+    private final CommandHandler commandHandler;
     private int processedBytesOffset = 0;
     
-    public ReplicationClient(ServerConfig config, CommandProcessor commandProcessor) {
+    public ReplicationClient(ServerConfig config, CommandHandler commandHandler) {
         this.config = config;
-        this.commandProcessor = commandProcessor;
+        this.commandHandler = commandHandler;
     }
     
     /**
@@ -231,8 +231,11 @@ public class ReplicationClient {
                 masterOutputStream.flush();
                 System.out.println("Responded to GETACK with offset " + processedBytesOffset);
             } else {
-                // Stage 26: Process other commands without sending a response
-                commandProcessor.processCommand(command, commandParts);
+                // As a replica, we should not propagate commands further.
+                // The CommandHandler needs to be aware of this context.
+                // For now, we call it directly. A future refactoring could
+                // involve a flag or a different entry point for replica command execution.
+                commandHandler.handleCommand(command, commandParts.subList(1, commandParts.size()), null);
             }
             
             // Update the offset *after* processing the command
