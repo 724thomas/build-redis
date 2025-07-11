@@ -41,6 +41,19 @@ public class ReplicationManager {
     }
     
     /**
+     * 지정된 소켓에 해당하는 레플리카를 제거합니다.
+     */
+    public void removeReplica(Socket clientSocket) {
+        replicas.removeIf(replicaInfo -> {
+            if (replicaInfo.getSocket().equals(clientSocket)) {
+                System.out.println("Replica " + replicaInfo.getAddress() + " unregistered. Total replicas: " + (replicas.size() - 1));
+                return true;
+            }
+            return false;
+        });
+    }
+    
+    /**
      * 연결된 모든 레플리카에게 명령어를 전파합니다.
      */
     public void propagateCommand(List<String> commandParts) {
