@@ -76,6 +76,30 @@ public class ClientHandler implements Runnable {
     }
     
     private void handleCommand(List<String> commandParts, OutputStream outputStream) throws IOException {
+        String commandName = commandParts.get(0).toLowerCase();
+        
+        if (inTransaction) {
+            if (commandName.equals("exec")) {
+                executeTransaction(outputStream);
+            } else if (commandName.equals("discard")) {
+                discardTransaction(outputStream);
+            } else {
+                queueCommand(commandParts, outputStream);
+            }
+        } else {
+            if (commandName.equals("multi")) {
+                startTransaction(outputStream);
+            } else if (commandName.equals("exec")) {
+                sendResponse(outputStream, RespProtocol.createErrorResponse("EXEC without MULTI"));
+            } else if (commandName.equals("discard")) {
+                sendResponse(outputStream, RespProtocol.createErrorResponse("DISCARD without MULTI"));
+            } else {
+                executeSingleCommand(commandParts, outputStream);
+            }
+        }
+    }
+
+    private void executeSingleCommand(List<String> commandParts, OutputStream outputStream) throws IOException {
         String commandName = commandParts.get(0);
         List<String> args = commandParts.subList(1, commandParts.size());
         
@@ -90,6 +114,45 @@ public class ClientHandler implements Runnable {
             sendEmptyRdb(outputStream, clientSocket.getRemoteSocketAddress().toString());
             replicationService.addReplica(clientSocket);
         }
+    }
+
+    private void startTransaction(OutputStream outputStream) throws IOException {
+        inTransaction = true;
+        transactionQueue.clear();
+        sendResponse(outputStream, RespProtocol.OK_RESPONSE);
+    }
+
+    private void queueCommand(List<String> commandParts, OutputStream outputStream) throws IOException {
+        transactionQueue.add(commandParts);
+        sendResponse(outputStream, RespProtocol.QUEUED_RESPONSE);
+    }
+
+    private void executeTransaction(OutputStream outputStream) throws IOException {
+        List<String> responses = new ArrayList<>();
+        for (List<String> queuedCommand : transactionQueue) {
+            String commandName = queuedCommand.get(0);
+            List<String> args = queuedCommand.subList(1, queuedCommand.size());
+            String response = commandHandler.handleCommand(commandName, args, clientSocket);
+            if (response == null) {
+                // Should not happen for commands in a transaction, but as a safeguard
+                responses.add(RespProtocol.createNullBulkString());
+            } else {
+                responses.add(response);
+            }
+        }
+        
+        sendResponse(outputStream, RespProtocol.createRespArrayFromRaw(responses));
+        resetTransactionState();
+    }
+    
+    private void discardTransaction(OutputStream outputStream) throws IOException {
+        resetTransactionState();
+        sendResponse(outputStream, RespProtocol.OK_RESPONSE);
+    }
+
+    private void resetTransactionState() {
+        inTransaction = false;
+        transactionQueue.clear();
     }
     
     private void sendEmptyRdb(OutputStream outputStream, String clientAddress) throws IOException {
