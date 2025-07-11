@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.stream.Collectors;
 
 /**
@@ -56,36 +57,41 @@ public class StreamsManager {
                 .filter(entry -> isInRange(entry.getId(), startId, endId))
                 .collect(Collectors.toList());
 
-        return formatStreamEntries(result);
+        return RespProtocol.formatXRangeResponse(result);
     }
 
     /**
      * 스트림에서 특정 ID 이후의 엔트리들을 읽어옵니다. (XREAD 로직)
      * @return Map<String, List<StreamEntry>> 형태의 결과. 키는 스트림 키, 값은 엔트리 리스트.
      */
-    public Map<String, List<StreamEntry>> xread(String streamKey, String startIdStr) {
+    public Map<String, List<StreamEntry>> xread(List<String> keys, List<String> ids) {
         Map<String, List<StreamEntry>> resultMap = new HashMap<>();
-        List<StreamEntry> streamEntries = streams.get(streamKey);
 
-        if (streamEntries == null || streamEntries.isEmpty()) {
-            return resultMap;
-        }
+        for (int i = 0; i < keys.size(); i++) {
+            String key = keys.get(i);
+            String id = ids.get(i);
 
-        StreamEntryId startId = StreamEntryId.fromString(startIdStr);
+            List<StreamEntry> streamEntries = streams.get(key);
+            if (streamEntries == null || streamEntries.isEmpty()) {
+                continue;
+            }
 
-        List<StreamEntry> resultEntries = streamEntries.stream()
-                .filter(entry -> entry.getId().compareTo(startId) > 0)
-                .collect(Collectors.toList());
+            StreamEntryId startId = StreamEntryId.fromString(id);
 
-        if (!resultEntries.isEmpty()) {
-            resultMap.put(streamKey, resultEntries);
+            List<StreamEntry> resultEntries = streamEntries.stream()
+                    .filter(entry -> entry.getId().compareTo(startId) > 0)
+                    .collect(Collectors.toList());
+
+            if (!resultEntries.isEmpty()) {
+                resultMap.put(key, resultEntries);
+            }
         }
 
         return resultMap;
     }
 
-    private boolean isInRange(StreamEntryId id, StreamEntryId startId, StreamEntryId endId) {
-        return id.compareTo(startId) >= 0 && id.compareTo(endId) <= 0;
+    private boolean isInRange(StreamEntryId id, StreamEntryId start, StreamEntryId end) {
+        return id.compareTo(start) >= 0 && id.compareTo(end) <= 0;
     }
 
     private StreamEntryId parseRangeId(String idStr, boolean isStart) {
@@ -145,9 +151,9 @@ public class StreamsManager {
     private StreamEntryId processEntryId(String streamKey, String entryIdStr) {
         if ("*".equals(entryIdStr)) {
             long currentTime = System.currentTimeMillis();
-            List<StreamEntry> streamEntries = streams.get(streamKey);
-            if (streamEntries != null && !streamEntries.isEmpty()) {
-                StreamEntryId lastId = streamEntries.get(streamEntries.size() - 1).getId();
+            List<StreamEntry> stream = streams.get(streamKey);
+            if (stream != null && !stream.isEmpty()) {
+                StreamEntryId lastId = stream.get(stream.size() - 1).getId();
                 if (lastId.getTime() == currentTime) {
                     return new StreamEntryId(currentTime, lastId.getSequence() + 1);
                 }
@@ -157,10 +163,10 @@ public class StreamsManager {
 
         if (entryIdStr.endsWith("-*")) {
             long time = Long.parseLong(entryIdStr.substring(0, entryIdStr.length() - 2));
-            List<StreamEntry> streamEntries = streams.get(streamKey);
+            List<StreamEntry> stream = streams.get(streamKey);
             long sequence = 0;
-            if (streamEntries != null && !streamEntries.isEmpty()) {
-                StreamEntryId lastId = streamEntries.get(streamEntries.size() - 1).getId();
+            if (stream != null && !stream.isEmpty()) {
+                StreamEntryId lastId = stream.get(stream.size() - 1).getId();
                 if (lastId.getTime() == time) {
                     sequence = lastId.getSequence() + 1;
                 }
@@ -177,9 +183,9 @@ public class StreamsManager {
             throw new IllegalArgumentException("The ID specified in XADD must be greater than 0-0");
         }
 
-        List<StreamEntry> streamEntries = streams.get(streamKey);
-        if (streamEntries != null && !streamEntries.isEmpty()) {
-            StreamEntryId lastId = streamEntries.get(streamEntries.size() - 1).getId();
+        List<StreamEntry> stream = streams.get(streamKey);
+        if (stream != null && !stream.isEmpty()) {
+            StreamEntryId lastId = stream.get(stream.size() - 1).getId();
             if (currentId.compareTo(lastId) <= 0) {
                 throw new IllegalArgumentException("The ID specified in XADD is equal or smaller than the target stream top item");
             }

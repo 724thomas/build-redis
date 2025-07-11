@@ -335,20 +335,23 @@ public class CommandProcessor {
     }
 
     private String handleXReadCommand(List<String> args) {
-        // XREAD streams <key_1> ... <key_N> <id_1> ... <id_N>
-        if (args.size() < 4) {
-            return RespProtocol.createErrorResponse("wrong number of arguments for 'xread' command");
-        }
-
-        if (!"streams".equalsIgnoreCase(args.get(1))) {
+        // XREAD [BLOCK milliseconds] streams <key_1> ... <key_N> <id_1> ... <id_N>
+        int streamsIndex = args.indexOf("streams");
+        if (streamsIndex == -1) {
             return RespProtocol.createErrorResponse("syntax error");
         }
         
-        // Stage 40: a single stream.
-        String key = args.get(2);
-        String id = args.get(3);
-
-        Map<String, List<StreamEntry>> result = streamsManager.xread(key, id);
+        // 키와 ID의 개수가 맞는지 확인
+        int remainingArgs = args.size() - (streamsIndex + 1);
+        if (remainingArgs % 2 != 0) {
+            return RespProtocol.createErrorResponse("ERR Unbalanced XREAD list of streams: for each stream key an ID must be specified.");
+        }
+        
+        int numStreams = remainingArgs / 2;
+        List<String> keys = args.subList(streamsIndex + 1, streamsIndex + 1 + numStreams);
+        List<String> ids = args.subList(streamsIndex + 1 + numStreams, args.size());
+        
+        Map<String, List<StreamEntry>> result = streamsManager.xread(keys, ids);
         
         return RespProtocol.formatXReadResponse(result);
     }

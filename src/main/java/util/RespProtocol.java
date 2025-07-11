@@ -197,6 +197,33 @@ public class RespProtocol {
     }
 
     /**
+     * XRANGE 명령어의 응답을 RESP 형식으로 포맷팅합니다.
+     */
+    public static String formatXRangeResponse(List<StreamEntry> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return createEmptyArray();
+        }
+        
+        StringBuilder response = new StringBuilder();
+        response.append("*").append(entries.size()).append("\r\n");
+        
+        for (StreamEntry entry : entries) {
+            response.append("*2\r\n"); // Each entry is an array of [ID, [field, value, ...]]
+            
+            // 1. Entry ID
+            response.append(createBulkString(entry.getId().toString()));
+            
+            // 2. Field-value pairs
+            response.append("*").append(entry.getFieldValues().size()).append("\r\n");
+            for (String part : entry.getFieldValues()) {
+                response.append(createBulkString(part));
+            }
+        }
+        
+        return response.toString();
+    }
+
+    /**
      * 입력 스트림에서 한 줄을 읽습니다 (CRLF 포함).
      */
     private static String readLine(InputStream in) throws IOException {
