@@ -337,12 +337,12 @@ public class StreamsManager {
         
         if (streamEntries == null || streamEntries.isEmpty()) {
             if (currentId.compareTo(new StreamId(0, 0)) <= 0) {
-                throw new IllegalArgumentException("ERR The ID specified in XADD must be greater than 0-0");
+                throw new IllegalArgumentException("The ID specified in XADD must be greater than 0-0");
             }
         } else {
             StreamId lastId = streamEntries.get(streamEntries.size() - 1).getId();
             if (currentId.compareTo(lastId) <= 0) {
-                throw new IllegalArgumentException("ERR The ID specified in XADD is equal or smaller than the target stream top item");
+                throw new IllegalArgumentException("The ID specified in XADD is equal or smaller than the target stream top item");
             }
         }
         
