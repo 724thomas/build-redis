@@ -88,11 +88,12 @@ public class ReplicationManager {
         long startTime = System.currentTimeMillis();
         long remainingTimeout = timeout;
         
+        requestAcksFromReplicas();
+        
         synchronized (waitLock) {
             while (remainingTimeout > 0) {
                 try {
                     // ACK 응답을 기다림
-                    requestAcksFromReplicas();
                     waitLock.wait(remainingTimeout);
                     
                     syncedReplicas = countSyncedReplicas(targetOffset);
